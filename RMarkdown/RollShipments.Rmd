@@ -1,0 +1,51 @@
+---
+title: "SKU Shipments"
+author: "R Schroeder"
+date: "March 24, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+```
+
+## R Markdown
+
+Document notes:
+
+```{r read-data}
+if (!exists("rawDataAll")){
+  mYear <- "2016"
+  rawDataAll <- read_csv(paste0(proj_root, "Data/All Shipments Fixed ", 
+                               mYear, ".csv"))
+}
+sku_list <-  
+  tribble( ~Grade, ~CalDW, ~Width,
+           #----------------------
+            "AKPG", "21-XX-X", 41.75,
+            "AKPG", "21-XX-X", 56.25,
+            "AKPG", "24-XX-X", 37.5,
+            "AKPG", "24-XX-X", 39.375)
+
+rawDataSKU <- rawDataAll %>%
+  mutate(Cal = str_sub(CalDW, 1, 2)) %>%
+           semi_join(mutate(sku_list, Cal = str_sub(CalDW, 1, 2)),
+                     by = c("Grade" = "Grade",
+                            "Cal" = "Cal",
+                            "Width" = "Width"))
+rawDataSKU <- rawDataSKU %>%
+  mutate(Dia = str_sub(CalDW, 4, 5),
+         Width = as.character(Width))
+```
+
+## Including Plots
+
+Plots
+
+```{r pressure, echo=FALSE}
+ggplot(data = rawDataSKU, aes(x = Date)) +
+  geom_bar(stat = "identity", aes(y = Tons, fill = Width)) +
+  scale_color_discrete()
+```
+

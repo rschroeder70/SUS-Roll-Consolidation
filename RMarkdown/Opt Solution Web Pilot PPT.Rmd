@@ -1,0 +1,722 @@
+---
+title: "Generate PowerPoint for CPD Web Pilot Scenario"
+output: html_document
+---
+
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## R Markdown
+
+```{r Load Packages and Read Raw Data}
+library(xts)
+library(gridExtra)
+library(plyr)
+library(tidyverse)
+library(scales)
+library(stringr)
+library(openxlsx)
+library(knitr)
+library(broman)
+library(ReporteRs)
+
+# Set options for ReporteRs
+options("ReporteRs-default-font" = "Veranda",
+        "ReporteRs-fontsize" = 12)
+
+```
+
+```{r Read Raw Data}
+
+#Summarize SKU counts by product type
+if (!exists("rd_comb")) source(file.path(proj_root, "R", 
+                                         "YoY Data Comp.R"))
+
+# Just use the CPD.Web SKUs
+cpd_web <- rd_comb%>%
+  filter(Year == mYear & Prod.Type == "CPD.Web")
+
+sku_summary <- cpd_web %>%
+  rename(`Prod Type` = Prod.Type) %>%
+  mutate(`Prod Type` = sub("\\.", " ", `Prod Type`)) %>%
+  group_by(`Prod Type`) %>%
+  summarize(`2016 Tons` = round(sum(Tons), 0),
+            `SKU Count` = n(),
+            `Die Count` = sum(Nbr.Dies, na.rm = TRUE),
+            `2016 Tons Common to 2015` = round(sum(ifelse(Common.SKU, Tons, 0), na.rm = TRUE), 0),
+            `2016 SKUs Common to 2015` = n_distinct(ifelse(Common.SKU, Tons, 0)))
+
+sku_totals <- sku_summary %>%
+  summarize(`2016 Tons` = sum(`2016 Tons`),
+            `SKU Count` = sum(`SKU Count`),
+            `Die Count` = sum(`Die Count`),
+            `2016 Tons Common to 2015` = sum(`2016 Tons Common to 2015`),
+            `2016 SKUs Common to 2015` = sum(`2016 SKUs Common to 2015`)) %>%
+  mutate(`Prod Type` = "Total")
+
+sku_summary <- bind_rows(sku_summary, sku_totals)
+
+```
+
+
+```{r Slide 1 Raw Data Summary}
+#my_header_cell_props <- cellProperties(border.color = "white",
+#                                       background.color = "#81BC41",
+#                                       border.bottom.width = 2)
+my_f_table <- 
+  FlexTable(data = 
+              mutate(select(sku_summary, -`Prod Type`),
+                     `2016 Tons` = comma(`2016 Tons`),
+                     `SKU Count` = comma(`SKU Count`),
+                     `Die Count` = comma(`Die Count`),
+                     `2016 Tons Common to 2015` = 
+                       comma(`2016 Tons Common to 2015`),
+                     `2016 SKUs Common to 2015` = 
+                       comma(`2016 SKUs Common to 2015`)),
+            header.cell.props = 
+              cellProperties(vertical.align = "middle",
+                             background.color = "#81BC41",
+                             border.color = "white",
+                             border.bottom.width = 2,
+                             padding = 5),
+            header.par.props = parProperties(text.align = "center"),
+            header.text.props = textProperties(font.family = "Veranda",
+                                               color = "white",
+                                               font.weight = "bold"),
+            body.cell.props = 
+              cellProperties(padding = 5,
+                             vertical.align = "middle",
+                             border.color = "white"),
+            body.text.props = textProperties(font.family = "Veranda",
+                                             color = "#6D6E71"),
+            body.par.props = parProperties(text.align = "right"))
+
+my_f_table <- setZebraStyle(my_f_table, odd = "#D8E7CF", even = "#EDF4E8")
+# Format the footer row
+my_f_table[nrow(sku_summary), ] <- textProperties(font.family = "Veranda",
+                                                  font.weight = "bold",
+                                                  color = "#6D6E71")
+# Left justify the first column
+#my_f_table[, 1] <- parProperties(text.align = "left")
+#my_f_table[1, 1] <- "Some Long Lines of Text"
+my_f_table <- setFlexTableWidths(my_f_table, 
+                                 widths = c(rep(0.8, 3), rep(1, 2)))
+print(my_f_table)
+
+tons_by_width <- ggplot(cpd_web, 
+       aes(x = Width, y = Tons)) +
+  geom_bar(stat = "identity", width = .25, position = "stack", 
+           aes(fill = Grade)) +
+  ggtitle("2016 SUS SKU Volume by Width") +
+  scale_y_continuous(name = "Tons", 
+                     labels = unit_format(unit = "K", scale = 1/1000)) +
+  scale_x_continuous(name = "Product Width")
+
+tons_by_width
+
+pareto_df <- cpd_web %>%
+  select(Mill, Grade, CalDW, Width, Tons, Prod.Type) %>%
+  arrange(desc(Tons)) %>%
+  mutate(SKU.Nbr = row_number()) %>%
+  mutate(CTons = cumsum(Tons)) %>%
+  mutate(x = lag(SKU.Nbr, default = 0), y = lag(CTons, default = 0), 
+         xend = SKU.Nbr, yend = CTons,
+         Cum.Pct = CTons/sum(Tons))
+
+idx <- which.max(pareto_df$Cum.Pct > .8)
+x_end <- pareto_df$xend[idx]
+y_end <- pareto_df$yend[idx]
+
+pareto <- ggplot(data = pareto_df, aes(x = SKU.Nbr, y = CTons)) +
+  geom_segment(aes(x = x, xend = xend, y = y, yend = yend,
+                   #color = Prod.Type), size = 1.5, alpha = 0.7) +
+                   color = Grade), size = 1.5) +
+  scale_y_continuous(labels = unit_format(unit = "K", scale = 1/1000)) +
+  scale_x_continuous(name = "SKU Ranking") +
+  geom_segment(aes(x = 0, xend = x_end, y = y_end, yend = y_end),
+               color = "black", size = 1) +
+  geom_segment(aes(x = x_end, xend = x_end, y = 0, yend = y_end),
+               color = "black", size = 1) +
+  geom_text(label = paste0("80% = ", comma(round(y_end/1000, 0)), 
+                           " K Tons"), aes(x = 0, y = y_end),
+            vjust = -1, hjust = "inward") +
+  geom_text(label = x_end, aes(x = x_end, y = 0),vjust = "inward", 
+            hjust = -.5) +
+  ggtitle("SKU Volume Pareto")
+
+pareto
+
+# Plot the total volume by facility/machine (and Grade)
+fac_total <- cpd_web %>%
+  group_by(Mill) %>%
+  summarize(Fac.Tons = sum(Tons))
+
+by_mach <- ggplot(cpd_web, aes(x = Mill, y = Tons)) +
+  geom_bar(stat = "identity", aes(fill = Grade)) +
+  ggtitle("2016 CPD Web Shipments by Machine") +
+  scale_y_continuous(name = "Tons", 
+                     labels = unit_format(unit = "K", scale = 1/1000),
+                     limits = c(0, 100000)) +
+  scale_x_discrete(name = "Mill/Machine") +
+  geom_text(data = fac_total, vjust = -.5,
+            aes(x = Mill, y = Fac.Tons,
+                label = comma(round(Fac.Tons, 0))), position = "stack")
+by_mach
+rm(fac_total)
+
+# Read the Product Demand Profile data files
+prod_dmd_profile <- read_results("dmd_prof_prod", mYear, projscenario)
+
+# Add the Prod.Type
+cpd_web <- cpd_web %>%
+  left_join(select(prod_dmd_profile, Fac, Grade, CalDW, Width, dclass),
+            by = c("Mill" = "Fac", 
+                   "Grade", "CalDW", 
+                   "Width"))
+
+# Make sure we have a match for every roll
+if (anyNA(cpd_web$dclass)) {
+    stop("Unable to match all SKUs to a dclass")
+}
+
+# Re-Sequence the Prod.Types
+cpd_web$Prod.Type <- 
+  factor(cpd_web$Prod.Type, 
+         levels=c("CPD.Web", "Bev.VMI", "CPD.Sheet", "Europe"))
+
+dmd_prof <- ggplot(cpd_web, aes(dclass, Tons)) +
+  geom_bar(stat = "identity", aes(fill = Prod.Type)) +
+  scale_y_continuous(label = unit_format(unit = "K", scale = .001), name = "Tons") +
+  scale_x_discrete(name = "Demand Profile Classification") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()
+
+dmd_prof
+
+
+mydoc <- pptx(template = 'C:/Users/SchroedR/My Documents/GPI Presentations/GPI 2016 Standard PPT Template - Blank.pptx')
+
+#slide.layouts(mydoc)
+#slide.layouts(mydoc, "Custom Layout")
+
+mydoc <- addSlide(mydoc, slide.layout = "Title Slide")
+mydoc <- addTitle(mydoc, "SUS Beverage Roll Consolidation", level = 1)
+#mydoc <- addTitle(mydoc, "19 April 2017", level = 2)
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0(mYear, " SUS Beverage 2016 Shipment Data Summary"))
+addFlexTable(mydoc, flextable = my_f_table, offx = 0.4, offy = 1.35, 
+             width = 5, height = 3.5)
+#mydoc <- addParagraph(mydoc, value = pot("This is some text"),
+#                      par.properties = parProperties(text.align="center", padding=0),
+#                      offx = 0.75, offy = 1, width = 2, height = 3)
+mydoc <- addPlot(mydoc, fun = function() print(by_mach),
+                 offx = .1, offy = 3, width = 5, height = 4)
+mydoc <- addPlot(mydoc, fun = function() print(tons_by_width), 
+                 offx = 5, offy = 1.25, width = 5, height = 2.8)
+mydoc <- addPlot(mydoc, fun = function() print(pareto), 
+                 offx = 5, offy = 4.1, width = 5, height = 2.8)
+mydoc <- addPlot(mydoc, fun = function() print(dmd_prof),
+                 offx = 5, offy = 1.3, width = 7, height = 3)
+
+#mydoc <- addPageNumber(mydoc)
+ppt_file <- file.path(proj_root, paste0("Model Results ", "CPD Web Pilot",".pptx"))
+writeDoc (mydoc, ppt_file)
+rm(tons_by_width, pareto, my_f_table)
+rm(pareto_df, x_end, y_end, by_mach, cpd_web, dmd_prof)
+
+```
+```{r Slide 4 Model Summary and Sim Plots}
+
+
+# Create the pilot parents data frame
+pilot_parents <- opt_parents %>%
+  filter(Parent.Type == "CPD.Web") %>%
+  arrange(desc(Parent.DMD)) %>%
+  top_n(15, Parent.DMD)
+
+pilot_prods <- semi_join(opt_detail, pilot_parents,
+                         by = c("Fac", "Grade", "CalDW",
+                                "Parent.Width"))
+
+# Sim base is sim_parents filtered for 1 roll per parent (no consolidation)
+
+pilot_sim_base <- semi_join(sim_base, pilot_prods, 
+                   by = c("Fac", "Grade", "CalDW", 
+                          "Parent_Width" = "Prod.Width"))
+
+all_prods <- pilot_sim_base %>% 
+  summarize(Sub.Rolls = n(),
+            Nbr.Rolls = n(),
+            Annual.Tons = round(sum(Sim.Parent.DMD), 0),
+            Avg.OH = round(sum(Sim.Parent.Avg.OH), 0),
+            Total.DOH = round(365*sum(Sim.Parent.Avg.OH)/sum(Sim.Parent.DMD), 1),
+            Trim.Tons = 0,
+            Fill.Rate = round(sum(Sim.Parent.DMD * Sim.Parent.Qty.Fill.Rate, 
+                                  na.rm = T)/
+              sum(Sim.Parent.DMD), 3)) %>%
+  mutate(Title = "Stock all SKUs (no consolidation)")
+
+
+all_parents <- pilot_parents %>% 
+    summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
+            Nbr.Rolls = n(),
+            Annual.Tons = round(sum(Parent.DMD), 0),
+            Avg.OH = round(sum(Sim.Parent.Avg.OH), 0),
+            Total.DOH = round(365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD), 1),
+            Trim.Tons = round(sum(Parent.Trim.Loss), 0),
+            Fill.Rate = round(sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
+              sum(Parent.DMD),3)) %>%
+  mutate(Title = "Stock all Parents")
+
+options <- bind_rows(all_prods, all_parents)
+
+options <- add_row(options)
+options$Title[3] <- "Change"
+options$Nbr.Rolls[3] <- options$Nbr.Rolls[2] - options$Nbr.Rolls[1]
+options$Avg.OH[3] <- options$Avg.OH[2] - options$Avg.OH[1]
+options$Trim.Tons[3] <- options$Trim.Tons[2] - options$Trim.Tons[1]
+
+options$Total.DOH[3] <- options$Total.DOH[2] - options$Total.DOH[1]
+options$Annual.Tons[3] <- options$Annual.Tons[2] - options$Annual.Tons[1]
+
+options <- options %>%
+  mutate(Scenario = Title,
+         `Parent Rolls` = comma(Nbr.Rolls),
+         `SKU Count` = comma(Sub.Rolls),
+         `Tons Shipped` = comma(Annual.Tons),
+         `Avg. OH Tons` = comma(Avg.OH),
+         `Avg. DOH` = comma(Total.DOH),
+         `Trim Loss Tons` = comma(Trim.Tons),
+         `Fill Rate` = percent(Fill.Rate)) %>%
+  select(-(1:8))
+
+options[options == "NA" | options == "NA%"] <- ""
+
+
+f_table2 <- FlexTable(data = options,
+                      header.cell.props = 
+                        cellProperties(vertical.align = "middle",
+                                       background.color = "#81BC41",
+                                       border.color = "white",
+                                       border.bottom.width = 2,
+                                       padding.top = 5,
+                                       padding.bottom = 5),
+                      header.par.props = 
+                        parProperties(text.align = "center"),
+                      header.text.props = 
+                        textProperties(font.family = "Veranda",
+                                       color = "white",
+                                       font.weight = "bold"),
+                      body.cell.props = 
+                        cellProperties(padding.right = 5,
+                                       padding.left = 3, padding.top = 5,
+                                       padding.bottom = 3,
+                                       vertical.align = "middle",
+                                       border.color = "white"),
+                      body.text.props = textProperties(font.family = "Veranda",
+                                                       color = "#6D6E71"),
+                      body.par.props = parProperties(text.align = "right"))
+
+f_table2 <- setZebraStyle(f_table2, odd = "#D8E7CF", even = "#EDF4E8")
+f_table2 <- setFlexTableWidths(f_table2, widths = c(3, rep(.9, 7)))
+f_table2[1:f_table2$numrow, 1] <- parProperties(text.align = "left")
+
+print(f_table2)
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0("Model Results & QV Inventory Comparison: ",
+                               "Model predicts a 3,000 ton inventory ", 
+                               "reduction from a ",
+                               "baseline that is close to 2016 ",
+                               "actual levels"))
+addFlexTable(mydoc, flextable = f_table2, offx = .3, offy = 1.4, 
+             width = 10, height = 6)
+
+# Add the aggregate simulation and QV actual plot from 9. Aggregate Sim Plots.R
+if (!exists("t_data_res")) {
+  source(file.path(proj_root, "R", "9. Aggregate Sim Plots.R"))
+}
+sim_qv_plot <- ggplot(data = t_data_res,  
+       aes(x = Date)) +
+  geom_step(aes(color = Scenario, y = On.Hand, size = Scenario), 
+            alpha = .85) +
+  scale_y_continuous(name = "On Hand Tons", labels = comma, 
+                     limits = c(NA, 50000)) +
+  ggtitle("Simulation Results and QlikView Actuals") +
+  #scale_color_brewer(palette = "Set1") +
+  geom_line(aes(color = Scenario, y = Avg.OH), size = .1) +
+  scale_size_manual(values = c(.2, .2, 1.2))
+  #geom_label(aes(x = max(Date), y = Avg.OH, label = 
+  #                 format(Avg.OH, big.mark = ",")), hjust = "inward") 
+  #geom_smooth(aes(y = On.Hand, color = Scenario), se = FALSE,
+  #            span = 0.2)
+
+mydoc <- addPlot(mydoc, fun = function() print(sim_qv_plot),
+                 offx = .45, offy = 3.2, width = 9, height = 3.7)
+print(sim_qv_plot)
+
+writeDoc (mydoc, ppt_file)
+
+#mydoc <- pptx(ppt_file)
+
+# Clean up
+rm(pilot_sim_base, all_parents, all_prods, f_table2, my_order, option_list, options,
+   sim_qv_plot)
+
+```
+
+```{r Slide 8 Parent Elim Summary}
+
+# Use the odp_x data frame from 7.2 Save Excel Validation.R
+
+pilot_opt_detail_plants <- 
+  semi_join(opt_detail_plants, pilot_prods, 
+                   by = c("Mill" = "Fac", "Grade", "CalDW", 
+                          "Parent.Width"))
+
+opt_new <- pilot_opt_detail_plants %>%
+  filter(Prod.Trim.Width >0) %>%
+  select(`Plant` = Plant.Abrev, Grade, Cal = Caliper, Dia, Wind, 
+         `Roll Width` = Prod.Width, `Parent Roll Width` = Parent.Width, Mill,
+         `Roll Tons` = Tons, `Trim Width` = Prod.Trim.Width, 
+         `Trim Tons` = Prod.Trim.Plant.Tons, 
+         `Parent Plant Count` = Parent.Plant.Count, 
+         `Total Parent Tons` = Parent.DMD) 
+
+opt_new <- opt_new %>% 
+  group_by(Mill, Grade, Cal, Dia, Wind, `Roll Width`) %>%
+  mutate(Plants = paste0(`Plant`, collapse = ", "),
+         `Roll Tons` = sum(`Roll Tons`),
+         `Trim Tons` = sum(`Trim Tons`)) %>%
+  select(-Plant) %>%
+  ungroup() %>%
+  distinct()
+
+opt_new <- opt_new %>% 
+  select(Grade:`Trim Tons`, Plants, everything()) %>%
+  mutate(`Roll Tons` = comma(round(`Roll Tons`, 0)),
+         `Trim Tons` = round(`Trim Tons`, 1),
+         `Total Parent Tons` = comma(round(`Total Parent Tons`, 0)))
+
+opt_new <- opt_new %>%
+  arrange(Grade, Cal, `Roll Width`,Dia, Wind)
+  
+#copy.table(opt_new)
+
+f_table5 <- FlexTable(data = opt_new,
+                      header.cell.props = 
+                        cellProperties(vertical.align = "middle",
+                                       background.color = "#81BC41",
+                                       border.color = "white",
+                                       border.bottom.width = 2,
+                                       padding.top = 3,
+                                       padding.bottom = 3),
+                      header.par.props = 
+                        parProperties(text.align = "center"),
+                      header.text.props = 
+                        textProperties(font.family = "Veranda",
+                                       color = "white",
+                                       font.weight = "bold",
+                                       font.size = 10),
+                      body.cell.props = 
+                        cellProperties(padding.right = 5,
+                                       padding.left = 3, padding.top = 2,
+                                       padding.bottom = 2,
+                                       vertical.align = "middle",
+                                       border.color = "white"),
+                      body.text.props = textProperties(font.family = "Veranda",
+                                                       color = "#6D6E71",
+                                                       font.size = 8),
+                      body.par.props = parProperties(text.align = "right"))
+
+f_table5 <- setZebraStyle(f_table5, odd = "#D8E7CF", even = "#EDF4E8")
+f_table5 <- setFlexTableWidths(f_table5, 
+                               widths = c(0.5, rep(0.4, 3), rep(0.7, 2), 
+                                          0.4, rep(0.5, 3), 2.0, rep(0.6, 2))) 
+f_table5[1:f_table5$numrow, 11] <- parProperties(text.align = "left")
+f_table5 <- spanFlexTableRows(f_table5, j = 12:13, 
+                              runs = as.character(opt_new$`Total Parent Tons`))
+
+print(f_table5)
+
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0("Beverage VMI Roll Consolidations"))
+addFlexTable(mydoc, flextable = f_table5, offx = .3, offy = 1.27, 
+             width = 9.0, height = 6)
+
+writeDoc (mydoc, ppt_file)
+
+# Clean up
+rm(opt_new, pilot_opt_detail_plants)
+  
+```
+
+
+```{r Slide 6 and 7 Parent SKU List by plant}
+
+# Use the odp_x data frame from 7.2 Save Excel Validation.R
+pilot_opt_detail_plants <- 
+  semi_join(opt_detail_plants, pilot_prods, 
+                   by = c("Mill" = "Fac", "Grade", "CalDW", 
+                          "Parent.Width"))
+
+opt_new <- pilot_opt_detail_plants %>%
+  filter(Prod.Trim.Width > 0) %>%
+  select(`Plant Name` = Plant.Name, Mill, Grade, Cal = Caliper, Dia, Wind, 
+         `Roll Width` = Prod.Width, `Parent Roll Width` = Parent.Width, 
+         `Roll Tons` = Tons, `Trim Width` = Prod.Trim.Width, 
+         `Trim Tons` = Prod.Trim.Plant.Tons, 
+         `Parent Plant Count` = Parent.Plant.Count, 
+         `Total Parent Tons` = Parent.DMD) %>%
+  mutate(`Roll Tons` = comma(round(`Roll Tons`, 0)),
+         `Trim Tons` = round(`Trim Tons`, 1),
+         `Total Parent Tons` = comma(round(`Total Parent Tons`, 0)))
+
+my_plants <- unique(opt_new$`Plant Name`)
+#my_order1 <- c("WEST MONROE - BEVERAGE", "PERRY", "FORT SMITH / BARLING")
+#my_order2 <- c("LAWRENCEBURG", "STAUNTON (CARDED GRAPHICS)",
+              "ELK GROVE VILLAGE WESTFIELD", "PACIFIC",
+              "LUMBERTON", "WAYNE", "MISSISSAUGA, ON")
+
+# Make sure we aren't missing any plants
+#setdiff(my_plants, c(my_order1, my_order2))
+
+#opt_new1 <- opt_new %>% 
+#  filter(`Plant Name` %in% my_order1)
+#opt_new2 <- opt_new %>%
+#  filter(`Plant Name` %in% my_order2)
+
+opt_new1$`Plant Name` <- factor(opt_new1$`Plant Name`, levels = my_order1)
+opt_new2$`Plant Name` <- factor(opt_new2$`Plant Name`, levels = my_order2)
+opt_new1 <- with(opt_new1, opt_new1[order(`Plant Name`),])
+opt_new2 <- with(opt_new2, opt_new2[order(`Plant Name`),])
+
+f_table3 <- FlexTable(data = opt_new1,
+                      header.cell.props = 
+                        cellProperties(vertical.align = "middle",
+                                       background.color = "#81BC41",
+                                       border.color = "white",
+                                       border.bottom.width = 2,
+                                       padding.top = 3,
+                                       padding.bottom = 3),
+                      header.par.props = 
+                        parProperties(text.align = "center"),
+                      header.text.props = 
+                        textProperties(font.family = "Veranda",
+                                       color = "white",
+                                       font.weight = "bold",
+                                       font.size = 10),
+                      body.cell.props = 
+                        cellProperties(padding.right = 5,
+                                       padding.left = 3, padding.top = 2,
+                                       padding.bottom = 2,
+                                       vertical.align = "middle",
+                                       border.color = "white"),
+                      body.text.props = textProperties(font.family = "Veranda",
+                                                       color = "#6D6E71",
+                                                       font.size = 8),
+                      body.par.props = parProperties(text.align = "right"))
+
+f_table3 <- setZebraStyle(f_table3, odd = "#D8E7CF", even = "#EDF4E8")
+f_table3 <- setFlexTableWidths(f_table3, 
+                               widths = c(2.1, rep(0.5, 5), 
+                                          rep(0.7, 2), 0.6, 0.5, 
+                                          0.5, 0.6, 0.7))
+f_table3[1:f_table3$numrow, 1] <- parProperties(text.align = "left")
+f_table3 <- spanFlexTableRows(f_table3, j = 1, 
+                              runs = as.character(opt_new1$`Plant Name`))
+
+f_table4 <- FlexTable(data = opt_new2,
+                      header.cell.props = 
+                        cellProperties(vertical.align = "middle",
+                                       background.color = "#81BC41",
+                                       border.color = "white",
+                                       border.bottom.width = 2,
+                                       padding.top = 3,
+                                       padding.bottom = 3),
+                      header.par.props = 
+                        parProperties(text.align = "center"),
+                      header.text.props = 
+                        textProperties(font.family = "Veranda",
+                                       color = "white",
+                                       font.weight = "bold",
+                                       font.size = 10),
+                      body.cell.props = 
+                        cellProperties(padding.right = 5,
+                                       padding.left = 3, padding.top = 2,
+                                       padding.bottom = 2,
+                                       vertical.align = "middle",
+                                       border.color = "white"),
+                      body.text.props = textProperties(font.family = "Veranda",
+                                                       color = "#6D6E71",
+                                                       font.size = 8),
+                      body.par.props = parProperties(text.align = "right"))
+
+f_table4 <- setZebraStyle(f_table4, odd = "#D8E7CF", even = "#EDF4E8")
+f_table4 <- setFlexTableWidths(f_table4, 
+                               widths = c(2.1, rep(0.5, 5), 
+                                          rep(0.7, 2), 0.6, 0.5, 
+                                          0.5, 0.6, 0.7))
+f_table4[1:f_table4$numrow, 1] <- parProperties(text.align = "left")
+f_table4 <- spanFlexTableRows(f_table4, j = 1, runs = as.character(opt_new2$`Plant Name`))
+
+print(f_table3)
+print(f_table4)
+
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0("Roll Width Changes"))
+addFlexTable(mydoc, flextable = f_table3, offx = .3, offy = 1.27, 
+             width = 9.0, height = 6)
+
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0("Roll Width Changes (cont.)"))
+addFlexTable(mydoc, flextable = f_table4, offx = .3, offy = 1.27, 
+             width = 9.0, height = 6)
+
+writeDoc (mydoc, ppt_file)
+
+# Clean up
+rm(my_plants, my_order1, my_order2, opt_new1, opt_new2)
+
+```
+
+```{r Parent Roll Plots}
+# Generate plot of trim width
+# First put the trim widths in 1/8 inch increments
+g_opt_detail <- opt_detail %>%
+  mutate(Prod.Trim.Width = ceiling(Prod.Trim.Width*8)/8)
+  
+gtrim <- ggplot(data = g_opt_detail,
+                aes(x = Prod.Trim.Width)) +
+  geom_bar(aes(y = Prod.Trim.Tons, fill = Fac),
+                 #binwidth = 0.125, color = "black",
+                 position = "stack", stat = "identity",
+           width = .1) +
+  xlab("Converting Trim Width (in.)") +
+  ylab("Trim Loss Tons") +
+  scale_x_continuous(limits = c(0, 3))+
+  ggtitle("Trim Tons versus Trim Width")
+
+#vtrim <- ggvis(data = g_opt_detail, 
+#               x = ~Prod.Trim.Width, 
+#               y = ~Prod.Trim.Tons) %>%
+#  layer_bars(fill = ~Parent.Policy)
+
+mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
+mydoc <- addTitle(mydoc, paste0("Parent Roll Trim Loss is Mostly ",
+                               "Less than 2.0 in."))
+
+mydoc <- addPlot(mydoc, fun = function() print(gtrim),
+                 offx = .45, offy = 1.2, width = 4.5, height = 3)
+
+writeDoc (mydoc, ppt_file)
+
+rm(gtrim, g_opt_detail)
+```
+
+
+```{r VMI Rolls on the VMI List from Rick}
+
+# Build a summary roll list to compare back to the original
+# This gets messy withall the intermediate tables, but it seems
+# to work.  Could probably be done in fewer steps
+vmi_rolls <- read.xlsx(file.path(proj_root, "Data", "VMI List.xlsx"),
+                       startRow = 2, cols = c(1:6)) %>%
+  mutate(Caliper = as.character(Caliper))
+
+vmi_rolls[is.na(vmi_rolls)] <- ""
+
+# Aggregate over Diameter and Wind direction for each Plant & Mill
+opt_new <- opt_detail_plants %>%
+  select(Mill, Plant.Abrev, Caliper, Grade, Prod.Width, Parent.Width, 
+           Prod.Trim.Width, Tons, Prod.Trim.Plant.Tons) %>%
+  rename(Trim.Width = Prod.Trim.Width) %>%
+  ungroup()
+
+#opt_new %>% summarize(Tons = sum(Tons), Trim.Tons = sum(Prod.Trim.Plant.Tons))
+
+# Build the plant list string
+opt_new_c  <- opt_new %>% 
+  select(Mill, Plant.Abrev, Caliper, Grade, Prod.Width, Tons)
+
+# Build the facility list string.  First sum without the Mill
+opt_new_f <- opt_new_c %>% select(-Mill) %>%
+  group_by(Plant.Abrev, Caliper, Grade, Prod.Width) %>%
+  summarize(Tons = sum(Tons)) %>%
+  ungroup() %>%
+  mutate(Plant.Abrev = paste0(Plant.Abrev, 
+                              " (", comma(round(Tons, 0)), ")")) %>%
+  group_by(Caliper, Grade, Prod.Width) %>%
+  mutate(Plants = paste0(Plant.Abrev, collapse = ", ")) %>%
+  ungroup()
+
+opt_new_f <- opt_new_f %>%
+  select(-Plant.Abrev, -Tons) %>%
+  distinct()
+
+# Build the Mill list string
+opt_new_m <- opt_new_c %>% select(-Plant.Abrev, -Tons) %>%
+  distinct() %>%
+  group_by(Caliper, Grade, Prod.Width) %>%
+  mutate(Mills = paste0(Mill, collapse = ", "))%>%
+  ungroup()
+
+opt_new_m <- opt_new_m %>%
+  select(-Mill) %>%
+  distinct()
+
+opt_new_c <- full_join(opt_new_m, opt_new_f,
+                       by = c("Caliper", "Grade", "Prod.Width"))
+
+opt_new <- opt_new %>%
+  group_by(Mill, Caliper, Grade, Prod.Width, Parent.Width, Trim.Width) %>%
+  summarize(Tons = sum(Tons),
+            Trim.Tons = sum(Prod.Trim.Plant.Tons)) %>%
+  ungroup()
+
+opt_new_c <- left_join(opt_new, opt_new_c,
+                       by = c("Grade", "Caliper", "Prod.Width"))
+
+opt_new_c %>% summarize(Tons = sum(Tons))
+
+opt_new <- left_join(vmi_rolls, opt_new_c,
+                     by = c("Caliper", 
+                           "Width" = "Prod.Width", 
+                           "Grade"))
+
+opt_new <- opt_new %>%
+  filter(!is.na(Tons))
+
+opt_new <- opt_new %>%
+  select(Caliper, Width, Grade, Purpose, Die, Status, Mill,
+         Tons, Parent.Width, Trim.Width, Trim.Tons, Mills, 
+         `Plants (Tons)` = Plants)
+  
+
+opt_new %>% summarize(Tons = sum(Tons),
+                      Trim.Tons = sum(Trim.Tons))
+
+copy.table(opt_new)
+
+
+wb <- loadWorkbook(file.path(proj_root, paste0(projscenario, mYear, 
+                               "ParentSummary.xlsx")))
+if (!("VMI List" %in% names(wb))) {
+  addWorksheet(wb, "VMI List")
+} else {
+  removeWorksheet(wb, "VMI List")
+  addWorksheet(wb, "VMI List")
+}
+
+writeData(wb, "VMI List", opt_new,
+          startCol = 1, startRow = 2,
+          withFilter = TRUE)
+
+
+saveWorkbook(wb, file = file.path(proj_root, paste0(projscenario, mYear, 
+                               "ParentSummary.xlsx")), overwrite = TRUE)
+
+rm(opt_new, opt_new_f, opt_new_c, opt_new_m, wb)
+
+```
+

@@ -1,0 +1,550 @@
+---
+title: "CPD Pilot Baseline Calcs"
+author: "R Schroeder"
+date: "June 7, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r definitions}
+# Data source: SUS Rollstock Bookmark in the QlikView Inventory
+#              cube under the Inventory Details tab/Mohthly Trend 
+#              Details worksheet.  
+#
+# The data is already in long format
+# 
+# In order to match up with model results, we need to make the same
+# adjustments to the SKUs as we do in the Read Data.R script0
+# 
+
+# This projects root directory
+if (!exists("proj_root")) proj_root <- 
+    file.path("~", "Projects", "SUS Roll Consolidation") 
+
+if (!exists("basepath")) basepath <- 
+  file.path("~","Projects", "RollAssortmentOptimization")
+
+if (!exists("projscenario")) projscenario <- "CPDOnly-95-8-150-500"
+if (!exists("mYear")) mYear <- "2016"
+
+# Load Packages & Functions
+source(file.path(basepath, "R", "0.LoadFunctions.R"))
+
+
+```
+
+```{r roll-inventory}
+# rinv - sus roll inventory
+rinv <- read.xlsx(file.path(proj_root,"Data",
+                    "QV SUS Roll Inv Mnth Trend Det 2016 2017.xlsx"),
+                           detectDates = T)
+
+rinv$Date <- as.Date(rinv$Date, "%m/%d/%Y")
+
+# Ignore material numbers that don't start with a "1"
+rinv <- rinv %>%
+  filter(str_sub(Material, 1, 1) == "1")
+
+# PM2 is external board and PM9 is Upgrage board
+# Note that external on the CRB side is Panther
+rinv <- rinv %>%
+  filter(!str_sub(Material.Group.Sel, 1, 3) %in% c("PM2", "PM9"))
+
+rinv <- rinv %>% filter(!is.na(Material))
+
+# Aggregate by plant and month-end
+rinv <- rinv %>%
+  group_by(Date, Plt, Plant.Name, Material.Group.Sel, Board.Group,
+           Material, Material.Description) %>%
+  summarize(Inv.Tons = sum(Qty.in.TON), Inv.Cost = sum(Cost.Val)) %>%
+  ungroup()
+
+# Fix the plant codes
+rinv <- rinv %>%
+  mutate(Plant = paste0("PLT", str_pad(Plt, 5, side = "left", pad = "0"))) %>%
+  select(-Plt)
+
+rinv <- rinv %>%
+  rename(Material.Descr = Material.Description)
+
+# Extract the PMP components from the description
+rinv <- rinv %>%
+  mutate(M.I = str_sub(Material.Descr, 1, 1))
+
+rinv <- rinv %>% 
+  mutate(Roll.Width = ifelse(M.I == "I",
+                        str_sub(Material.Descr, 10, 17),
+                        str_sub(Material.Descr, 11, 14)))
+rinv$Roll.Width <- as.numeric(rinv$Roll.Width)
+
+rinv <- rinv %>%
+  mutate(Caliper = ifelse(M.I == "I",
+                          str_sub(Material.Descr, 3, 4),
+                          str_sub(Material.Descr, 4, 5)))
+rinv <- rinv %>%
+  mutate(Grade = ifelse(M.I == "I",
+                        str_sub(Material.Descr, 5, 8),
+                        str_sub(Material.Descr, 6, 9)))
+
+rinv <- rinv %>%
+  mutate(Wind = str_sub(Material.Descr, 
+                        str_length(Material.Descr), -1))
+
+rinv <- rinv %>%
+  mutate(Dia = ifelse(M.I == "I",
+                      str_sub(Material.Descr, 19, 20),
+                      str_sub(Material.Descr, 16, 19)))
+
+# Exclude Verst
+rinv <- rinv %>%
+  filter(Plant != "PLT00508")
+
+# Aggregate over the diameters
+rinv <- rinv %>%
+  group_by(Plant, Plant.Name, Date, Grade, Caliper, 
+           Roll.Width, Wind, M.I) %>%
+  summarize(Inv.Tons = sum(Inv.Tons),
+            Inv.Cost = sum(Inv.Cost)) %>%
+  ungroup()
+
+# Read and apply the fixes file
+fixes <- read_csv(file.path(proj_root,"Data",
+                            "shipment-fixes-2016.csv"))
+
+fixes <- fixes %>%
+  select(-c(Date, Tons, I.M, Max.Diam)) %>% distinct()
+
+fixes <- fixes %>%
+#  select(Grade.Orig, Cal.Orig, Width.Orig, Wind.Orig,
+#         Grade.Fix, Cal.Fix, Width.Fix, Wind.Fix) %>%
+#  distinct(Grade.Orig, Cal.Orig, Width.Orig, Wind.Orig,
+#           .keep_all = TRUE) %>%
+  mutate(Cal.Fix = as.character(Cal.Fix),
+         Cal.Orig = as.character(Cal.Orig)) %>%
+  distinct()
+
+# If the only change is a mill or diameter, ignore it since we 
+# don't have either in our QV inventory data
+fixes <- fixes %>%
+  filter(!(((Mill.Orig != Mill.Fix) | (Dia.Orig != Dia.Fix)) 
+           & Width.Orig == Width.Fix &
+             Grade.Orig == Grade.Fix &
+             Cal.Fix == Cal.Orig &
+             Wind.Fix == Wind.Orig))
+
+fixes <- fixes %>%
+  select(-c(Mill.Orig, Mill.Fix, Dia.Orig, Dia.Fix)) %>%
+  distinct()
+
+rinv <- left_join(rinv, fixes,
+                  by = c("Plant" = "Plant",
+                         "Grade" = "Grade.Orig",
+                         "Caliper" = "Cal.Orig",
+                         "Roll.Width" = "Width.Orig",
+                         "Wind" = "Wind.Orig"))
+
+rm(fixes)
+
+# Restrict to just the pilot rolls
+rpilot <- read.xlsx(file.path(proj_root,
+         "CPD-pilot-rolls.xlsx"),
+                    sheet = "Pilot Products 2016", startRow = 2) %>%
+  filter(!is.na(Parent.Selection))
+
+# We should only have one Mill and Dia for each roll width, but just to be
+# sure...
+rpilot_inv <- rpilot %>%
+  distinct(Grade, Caliper, Wind, Roll.Width, Parent.Roll.Width)
+
+rinv <- left_join(rpilot_inv, rinv,
+                  by = c("Grade", "Caliper", "Wind", "Roll.Width"))
+
+# The only change to make is the 18 point 39.625 should all be moved to 
+# OMXX at Stone Mountain
+rinv <- rinv %>%
+  mutate(Grade = ifelse(!is.na(Grade.Fix), Grade.Fix, Grade))
+
+# Redo the join with the pilot rolls as the OMXX isn't a pilot
+rinv <- left_join(rpilot, rinv,
+                  by = c("Grade", "Caliper", "Wind", "Roll.Width"))
+
+rinv <- rinv %>%
+  select(-Grade.Fix, -Cal.Fix, -Width.Fix, -Wind.Fix)
+
+# Aggregate the inventory over all plants
+rinv <- rinv %>%
+  group_by(Date, Caliper, Grade, Wind, Roll.Width) %>%
+  summarize(Inv.Tons = sum(Inv.Tons),
+            Inv.Value = sum(Inv.Cost)) %>%
+  ungroup()
+
+rinv <- rinv %>%
+  mutate(Period = ifelse(Date == max(Date), "Current", year(Date)))
+
+  
+# Aggregate over all rolls
+rinv_me <- rinv %>%
+  group_by(Date) %>%
+  summarize(Inv.Tons = sum(Inv.Tons),
+            Inv.Value = sum(Inv.Value))
+
+rinv_sku <- rinv %>%
+  group_by(Period, Caliper, Grade, Wind, Roll.Width) %>%
+  summarize(Inv.Tons = mean(Inv.Tons),
+            Inv.Value = mean(Inv.Value))
+
+copy.table(rinv_sku)
+
+ggplot(rinv, aes(x=Date, y = Inv.Tons)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ paste(Caliper, Grade, Roll.Width), ncol = 10)
+
+```
+
+
+```{r die info}
+
+# The file comes from QlikView Fiber Analysis Consumption by Die Report, 
+# Bookmark = SUS Web Consumed with the Date set to Month Year.
+#
+# Try to identify the dies for which the pilot board widths were
+# preferred sizes, and not just used as substitutes
+
+cons <- read.xlsx(file.path(proj_root, "Data", 
+                           "QV SUS Roll Consumption 2015-2017.xlsx"),
+                 detectDates = T)
+
+cons <- cons %>%
+  mutate(Plant = paste0("PLT0", Plant),
+         Year = as.character(year(MonthYear)),
+         Board.Width = as.numeric(Board.Width)) %>%
+  filter(Board.Width > 0)
+
+cons <- cons %>%
+  mutate(M.I = str_sub(Material.Description, 1, 1))
+
+cons <- cons %>%
+  filter(Year %in% c("2016", "2017"))
+
+# Grade
+cons <- cons %>%
+  mutate(Grade = ifelse(
+        M.I == "I",
+        str_sub(Material.Description, 5, 8), # Imperial
+        str_sub(Material.Description, 6, 9)  # Metric
+        ) 
+      )
+
+cons <- cons %>%
+  mutate(Wind = str_sub(Material.Description, 
+                        str_length(Material.Description), -1))
+cons <- cons %>%
+  mutate(Dia = ifelse(M.I == "I",
+                      str_sub(Material.Description, 19, 20),
+                      str_sub(Material.Description, 16, 19)))
+
+# Aggregate over the dates
+cons <- cons %>%
+  group_by(Year, Plant, PlantName, 
+           MRPC2.Text, Die, Die.Description,
+           Grade, Board.Caliper, Dia, Wind, Board.Width, M.I,
+           Material, Material.Description) %>%
+  summarize(Tons = sum(TON)) %>%
+  ungroup()
+
+# Calculate the percentage of tons by board width for the dies with 
+#   multiple widths.
+cons <- cons %>%
+  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  mutate(Nbr.Widths = n_distinct(Board.Width),
+         Die.Tons = sum(Tons),
+         Die.Pct = round(100*Tons/Die.Tons, 2)) %>%
+  ungroup() %>%
+  arrange(Year, Plant, Die, desc(Board.Width)) 
+
+
+# Calculate the percentage of tons by board width for the dies with 
+#   multiple widths.  Ignore Grade & Caliper
+cons <- cons %>%
+  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  mutate(Nbr.Boards = n_distinct(Board.Width, Grade, Board.Caliper),
+         Tons = round(Tons, 0),
+         Die.Tons = round(sum(Tons), 0)) %>%
+  mutate(Die.Pct = round(100*Tons/Die.Tons, 2)) %>%
+  mutate(Nbr.Subs = sum(ifelse(Die.Pct < 5, 1, 0))) %>%
+  ungroup() %>%
+  arrange(Year, Plant, Die, desc(Board.Width)) 
+
+# Assume any boards that made up less than 5% of the die tons were
+#   un-desired substitutes
+cons <- cons %>%
+  mutate(Apparent.Sub = ifelse((Die.Pct < 5 & Tons < 50), TRUE, FALSE))
+
+# rpilot from a previous chunk
+cons_pre <- inner_join(cons, select(rpilot, Grade, Caliper, Wind, 
+                               Roll.Width, Parent.Roll.Width),
+                  by = c("Grade", "Board.Caliper" = "Caliper", 
+                         "Wind", "Board.Width" = "Roll.Width"))
+
+cons_parent <- semi_join(distinct(cons, Grade, Board.Caliper, Wind,
+                                Board.Width, Dia, Material, 
+                                Material.Description),
+                         select(rpilot, Grade, Caliper, Wind, 
+                               Roll.Width, Parent.Roll.Width), 
+                         by = c("Grade", "Board.Caliper" = "Caliper", 
+                         "Wind", "Board.Width" = "Parent.Roll.Width"))
+
+cons_parent <- cons_parent %>%
+  rename(Parent.Width = Board.Width,
+    Parent.Material = Material, 
+         Parent.Material.Descr = Material.Description)
+
+cons_final <- left_join(cons_pre, cons_parent,
+                        by = c("Grade", "Board.Caliper", "Dia", "Wind",
+                               "Parent.Roll.Width" = "Parent.Width"))
+
+cons_final <- cons_final %>%
+  select(-M.I) %>%
+  arrange(Year, Plant, Die, desc(Tons))
+
+#cons_final <- cons_final %>%
+#  filter(Parent.Roll.Width != Board.Width)
+
+
+cons_final <- cons_final %>% 
+  select(Year, Board.Caliper, Grade, Board.Width, Dia, Wind, Plant, 
+         `Plant Name` = PlantName, MRPC2.Text, Die,
+         Die.Description, 
+         Material, Material.Description, Tons, 
+         Die.Tons, Die.Pct, Nbr.Boards, Nbr.Subs, Apparent.Sub,
+         Parent.Width = Parent.Roll.Width, Parent.Material, Parent.Material.Descr)
+
+cons_final <- cons_final %>%
+  arrange(Year, Board.Caliper, Grade, Board.Width, Dia, Wind, Plant,
+          Die, Tons)
+
+cons_final <- cons_final %>%
+  mutate(Die.Pct = percent(`Die.Pct` / 100))
+
+names(cons_final) <- gsub("\\.", " ", names(cons_final))
+
+copy.table(cons_final)
+
+
+```
+
+```{r Consumption by Plant Summary}
+
+# First aggregate over the Die
+cons_plt <- cons %>%
+  group_by(Year, Caliper = `Board Caliper`, Grade, Dia, Wind,
+           `Board Width`, `Parent Roll Width`, Plant, `Plant Name`) %>%
+  summarize(Tons = sum(Tons)) %>%
+  ungroup()
+
+cons_plt <- cons_plt %>%
+  mutate(Plant = paste0(`Plant Name`, " (", comma(round(`Tons`, 0)), ")")) %>%
+  group_by(Year, Caliper, Grade, `Board Width`, Dia, Wind) %>%
+  mutate(Plants = paste0(Plant, collapse = ", ")) %>%
+  select(-Plant, -`Plant Name`) %>%
+  ungroup() %>%
+  group_by(Year, Caliper, Grade, `Board Width`, Dia, Wind, Plants,
+           `Parent Roll Width`) %>%
+  summarize(`Roll Tons` = sum(`Tons`)) %>%
+  ungroup()
+
+cons_plt <- cons_plt %>%
+  mutate(`Trim Width` = `Parent Roll Width` - `Board Width`,	
+           `Trim Tons` = (`Roll Tons` * `Parent Roll Width` / `Board Width`) - 
+           `Roll Tons` ) %>%
+             arrange(Year, Caliper, Grade, desc(`Board Width`))
+
+copy.table(cons_plt)
+```
+
+
+```{r fg inventory}
+fg <- read.xlsx(file.path(proj_root, "Data", 
+                           "QV-SUS-FG-2017.xlsx"),
+                 detectDates = T)
+
+fg$Date <- as.Date(fg$Date, "%m/%d/%Y")
+
+fg <- fg %>%
+  mutate(Plant = paste0("PLT0", Plt),
+         Year = as.character(year(Date)))
+
+# Convert to a datframe with only one die per entry
+dies <- cons %>% select(Die)
+dies <- dies %>%
+  separate(Die, c("Die1", "Die2", "Die3", "Die4"), sep = "/")
+
+dies <- dies %>%
+  gather(key, value) %>%
+  filter(!is.na(value)) %>%
+  rename(Die = value) %>%
+  select(-key) %>%
+  distinct()
+
+fg <- inner_join(fg, dies, c("Die"))
+
+
+fgsum <- fg %>%
+  filter(Date == max(Date)) %>%
+  group_by(Date, Plant.Name) %>%
+  summarize(Tons = round(sum(Qty.in.TON), 2),
+            Val = sum(Cost.Val)) %>%
+  arrange(desc(Tons))
+
+copy.table(fgsum)
+
+```
+
+```{r BOM Dies}
+#
+# The BOM data comes from the Board Dies bookmark in the 
+# Bill of Materials.qvw cube under the Material Category
+
+bom <- read.xlsx(file.path(proj_root, "Data", 
+                           "QV-BOM-dies.xlsx"))
+
+# Fix the plant codes
+bom <- bom %>%
+  mutate(Plant = paste0("PLT", str_pad(Plant, 5, side = "left", pad = "0")))
+
+# Extract the PMP components from the component desctiption
+bom <- bom %>%
+  mutate(M.I = str_sub(Component.Description, 1, 1))
+
+bom <- bom %>%
+  filter(M.I == "I")
+
+bom <- bom %>% 
+  mutate(Roll.Width = ifelse(M.I == "I",
+                        str_sub(Component.Description, 10, 17),
+                        str_sub(Component.Description, 11, 14)))
+bom$Roll.Width <- as.numeric(bom$Roll.Width)
+
+bom <- bom %>%
+  mutate(Caliper = ifelse(M.I == "I",
+                          str_sub(Component.Description, 3, 4),
+                          str_sub(Component.Description, 4, 5)))
+bom <- bom %>%
+  mutate(Grade = ifelse(M.I == "I",
+                        str_sub(Component.Description, 5, 8),
+                        str_sub(Component.Description, 6, 9)))
+
+bom <- bom %>%
+  mutate(Wind = str_sub(Component.Description, 
+                        str_length(Component.Description), -1))
+
+bom <- bom %>%
+  mutate(Dia = ifelse(M.I == "I",
+                      str_sub(Component.Description, 19, 20),
+                      str_sub(Component.Description, 16, 19)))
+
+# Ignore the TRIALs
+bom <- bom %>%
+  filter(!str_detect(Material.Description, "TRIAL"))
+
+# Make sure we just have one row for each
+bom_dist <- bom %>%
+  distinct(Plant, Die, Roll.Width, Caliper, Grade, Wind, Dia) %>%
+  rename(`BOM Grade` = Grade, `BOM Dia` = Dia, `BOM Wind` = Wind) %>%
+  mutate(BOM = TRUE)
+  
+# Which consumption by die records have a match in the BOM table
+# could be multiple
+cons_bom <- left_join(cons_final, bom_dist,
+                      by = c("Plant", "Die", "Board Caliper" = "Caliper",
+                             "Grade" = "BOM Grade", "Dia" = "BOM Dia", 
+                             "Wind" = "BOM Wind", 
+                             "Board Width" = "Roll.Width"))
+
+cons_bom[is.na(cons_bom)] <- ""
+
+copy.table(cons_bom)
+
+cons_bom_sum <- cons_bom %>%
+  group_by(Year, Plant, `Board Caliper`, Grade, Wind, Dia, 
+           `Board Width`, Die, Tons) %>%
+  summarize(Nbr.Components = n_distinct(Component, na.rm = TRUE),
+            Nbr.Materials = n_distinct(Material, na.rm = TRUE))
+
+# Pick the BOM dies by pilot roll size
+bom_pilot <- left_join(select(rpilot, Caliper, Grade, Wind, Roll.Width),
+                 select(bom, Caliper, Grade, Wind, Dia, Roll.Width,
+                        Plant, Component, Alt, Die, 
+                        Material, Material.Description),
+                 by = c("Caliper", "Grade", "Wind", "Roll.Width"))
+
+# Just pick the dies consumed this year
+bom_pilot <- semi_join(bom_pilot, cons,
+                       by = c("Die"))
+
+```
+```{r Pilot Dies Final}
+# These are the final set of dies that will be part of the pilot
+
+dies_final <- read.xlsx(file.path(proj_root,
+         "CPD-pilot-rolls.xlsx"),
+                    sheet = "Pilot Products 2017", startRow = 4, cols = 16) 
+
+# Create a single column vector of the dies
+dies_final <- unlist(strsplit(dies_final$Die.List, ","))
+
+dies_final <- str_trim(dies_final) 
+
+dies_final <- unique(dies_final)
+
+cons_2017 <- cons_pre %>% filter(Year == "2017")
+# Do any of the dies have a match in the dies_final list
+# The consumption dies are sometimes Die1/Die2/Die3.  The following
+# will find if the dies_final appears anywhere in the Die column
+t <- map(cons_2017$Die, ~ any(str_detect(.x, dies_final)))
+
+t <- unlist(t)
+
+# This will give us the total tons consumed in 2017
+t <- data_frame(Die = cons_2017$Die[t], Tons = cons_2017$Tons[t])
+
+copy.table( t %>% group_by(Die) %>%
+  summarize(Tons = sum(Tons, na.rm = TRUE)))
+
+```
+
+
+```{r Parent Roll Inventory Targets}
+# Read the optimal solution details for all machines
+if (!exists("read_results")) {
+  source(file.path("~", "Projects", "SUS Roll Consolidation", 
+                   "R", "FuncReadResults.R"))
+}
+
+opt_detail <- read_results("opt_detail", mYear, projscenario)
+
+opt_detail <- opt_detail %>%
+  mutate(Dia = str_sub(CalDW, 4, 5),
+         Wind = str_sub(CalDW, 7, 7))
+
+pilot_parents <- semi_join(opt_detail, rpilot,
+                            by = c("Caliper", "Grade", "Fac" = "Mill", 
+                                   "Dia", "Wind", 
+                                   "Prod.Width" = "Roll.Width")) %>%
+  mutate(Sim.Parent.Avg.OH = comma(round(Sim.Parent.Avg.OH, 0)), 
+         Parent.OTL = comma(round(Parent.OTL, 0)), 
+         Parent.DMD = comma(round(Parent.DMD, 0))) %>%
+  group_by(Caliper, Grade, Dia, Wind, Fac, `Parent Width` = Parent.Width, 
+           `Avg OH Tons` = Sim.Parent.Avg.OH, 
+           `Parent OTL Tons` = Parent.OTL) %>%
+  summarize(`2016 Demand` = comma(round(sum(Prod.DMD.Tons), 0)),
+            `Nbr Sub Rolls` = n())
+                             
+
+copy.table(pilot_parents)
+```
+

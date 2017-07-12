@@ -1,0 +1,130 @@
+---
+title: "Analyze Europe Results"
+output: html_document
+---
+
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## R Markdown
+
+```{r Load Packages and Read Raw Data}
+library(plyr)
+library(tidyverse)
+library(scales)
+library(stringr)
+library(openxlsx)
+library(knitr)
+library(broman)
+
+basepath <- file.path("C:","Users", "SchroedR", "Documents",
+                      "Projects", "RollAssortmentOptimization")
+proj_root <- file.path("C:", "Users", "SchroedR", "Documents",
+                       "Projects", "SUS Roll Consolidation")
+mYear <- "2016"
+
+# Load the various functions
+source(file.path(basepath, "R", "0.Functions.R"))
+source(file.path(proj_root, "R", "FuncReadResults.R"))
+
+# Read the raw data
+rawDataAll <- read_csv(paste(proj_root, "/Data/All Shipments Fixed ", 
+                               mYear, ".csv", sep = ""))  
+  # Just keep Europe
+rawDataEur <- rawDataAll %>%
+    filter(str_sub(Plant, 1, 5) == "PLTEU")
+
+
+rawDataEur <- rawDataEur %>%
+  separate(CalDW, c("Caliper", "Dia", "Wind"), remove = F)
+```
+
+
+```{r Tons by Plant, echo = TRUE}
+# How many Tons & SKUs are we starting with
+rawDataEur %>% 
+  summarize(Tons = sum(round(Tons, 0)),
+            Prod.Count = n_distinct(Mill, Grade, Caliper, Dia, Wind, Width),
+            Plants = n_distinct(Plant))
+
+```
+There are `r summarize(rawDataEur, n_distinct(Mill, Grade, Caliper, Dia, Wind, Width))` SKUs.
+
+
+## Plant Statistics - No Diameter Consolidation
+```{r Destination Plant Summary Stats}
+rawDataEur %>%
+  group_by(Facility.Name) %>%
+  summarize(Tons = add_commas(sum(round(Tons, 0))),
+            `Prod Count` = n_distinct(Mill, Grade, Caliper, Wind, Width),
+            `Nbr Diameters` = n_distinct(Dia))
+
+```
+
+```{r kable test}
+kable(rawDataEur %>%
+  group_by(Facility.Name) %>%
+  summarize(Tons = add_commas(round(sum(Tons, 1))),
+            `Prod Count` = n_distinct(Mill, Grade, Caliper, Wind, Width),
+            `Nbr Diameters` = n_distinct(Dia)))
+
+```
+
+## Plot some stuff
+```{r Europe Roll Size Distributions}
+ggplot(data = rawDataEur,
+       aes(x = Width, y = Tons, fill = Grade)) +
+  geom_bar(stat = "identity", 
+           position = "identity",
+           width = .3) +
+  #scale_fill_manual(values = c("red", "blue")) +
+  scale_y_continuous(labels = comma) +
+  coord_flip() +
+  #geom_text(data = filter(opt_detail_plot, Type == "Parent.DMD"),
+  #          aes(label = Width), size = 1.5,
+  #          hjust = "inward") +
+  facet_grid(. ~ Fac.Abrev, scales = "free_x") +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1.0),
+        text = element_text(size = 7),
+        legend.key.size = unit(1, "strheight", "1"))
+
+rawDataEur %>%
+  group_by(Facility.Name) %>%
+  summarize(Tons = round(sum(Tons), 0),
+            SKUs = n_distinct(Mill, Grade, CalDW, Width),
+            Shipments = n_distinct(Mill, Grade, CalDW, Width, Date),
+            Tons.Per.SKU = round(sum(Tons)/n_distinct(Mill, Grade, 
+                                                      CalDW, Width), 0),
+            Shipments.Per.SKU = round(n_distinct(Mill, Grade, 
+                                                 CalDW, Width, Date)/
+              n_distinct(Mill, Grade, CalDW, Width), 1))
+```
+
+
+```{r Order Profiles}
+# Roll shipment counts
+rawDataEur_ship_count <- rawDataEur %>%
+  group_by(Mill, Plant, Facility.Name, Fac.Abrev, 
+           Grade, CalDW, Width) %>%
+  summarize(Tons = sum(Tons),
+            Shipment.Count = n())
+ggplot(data = rawDataEur_ship_count,
+                     aes(x = Shipment.Count)) +
+  geom_histogram(binwidth = 1, aes(fill = Grade)) +
+  ggtitle("Roll Shipment Counts") +
+  scale_y_continuous(name = "Number of Rolls") +
+  scale_x_continuous(name = "Number of Shipments") +
+  facet_grid(Fac.Abrev ~ ., scales = "free_y")
+
+```
+
+```{r Europe Only Results, include = TRUE}
+projscenario <- "Europe"
+facility_list <- c("M1", "M2", "W6", "W7")
+mYear <- "2016"
+opt_detail <- read_results("opt_detail", mYear, projscenario)
+
+```
+
