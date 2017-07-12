@@ -21,6 +21,7 @@ projscenario <- "VMI-98-8-150-500v3"  # Fix the 21pt. 37
 #projscenario <- "Europe-95-8-140-415"
 #projscenario <- "NoEurope95"
 #mYear <- "2015"
+
 mYear <- "2016"
 start_date <- as.Date(paste(mYear, "01", "01", sep = "-"))
 end_date <- as.Date(paste(mYear, "12", "31", sep = "-"))
