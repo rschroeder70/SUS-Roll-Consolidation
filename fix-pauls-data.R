@@ -141,4 +141,4 @@ pd %>%
 
 # Save as a csv at this point - prior to diameter consolidation
 write_csv(pd, 
-          paste0("Data/All Shipments No SKU Fix ", mYear, ".csv"))
+          paste0("Data/All Shipments No SKU Fix-", "2017.5", ".csv"))
