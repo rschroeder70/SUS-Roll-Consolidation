@@ -18,13 +18,13 @@ if (!exists("opt_detail")) source("R/7.1 Opt Solution Post Process.R")
 # Use rawDataAll from the Read Data.R script
 # If we don't have it, read it from the csv file
 if (!exists("rawDataAll")) {
-  rawDataAll <- read_csv(file.path(proj_root, paste("Data/All Shipments Fixed ", 
+  rawDataAll <- read_csv(file.path(proj_root, paste("Data/all-shipments-fixed-", 
                                mYear, ".csv", sep = "")))
 }
 
 # Summarize by plant
 rawData_plant <- rawDataAll %>%
-  group_by(Year, Mill, Plant, Facility.Name, Fac.Abrev, 
+  group_by(Mill, Plant, Facility.Name, Fac.Abrev, 
            Grade, CalDW, Width) %>%
   summarize(Tons = sum(Tons)) %>%
   ungroup()
@@ -34,13 +34,13 @@ if (projscenario == "Europe"){
     filter(str_sub(Plant, 1, 5) == "PLTEU")
 }
 
-rawData_plant$Year <- as.character(rawData_plant$Year)
+#rawData_plant$Year <- as.character(rawData_plant$Year)
 
 #rawData_plant <- rawData_plant %>%
 #  separate(CalDW, c("Cal", "Dia", "Wind"), remove = FALSE)
 
 rawData_plant <- rawData_plant %>%
-  group_by(Year, Mill, Grade, CalDW, Width) %>%
+  group_by(Mill, Grade, CalDW, Width) %>%
   mutate(Prod.Plant.Count = n_distinct(Plant))
 
 rawData_plant <- rawData_plant %>%
@@ -49,7 +49,7 @@ rawData_plant <- rawData_plant %>%
 
 # Calculate the percent of total tons by plant
 rawData_plant <- rawData_plant %>%
-  group_by(Year, Mill, CalDW, Width) %>%
+  group_by(Mill, CalDW, Width) %>%
   mutate(Plant.Pct = Tons/sum(Tons))
 
 # Join the optimal results table with the raw data by plant
@@ -65,7 +65,7 @@ opt_detail_plants <- opt_detail_plants %>%
 
 # Rearrange the columns
 opt_detail_plants <- opt_detail_plants %>%
-  select(Year, Plant, Plant, Mill = Fac, Grade, CalDW, Parent.Width, 
+  select(Plant, Plant, Mill = Fac, Grade, CalDW, Parent.Width, 
          Prod.Width, Prod.Plant.Count, Prod.Trim.Width, Prod.Trim.Tons, 
          Tons, Parent.Policy, everything())
 
@@ -95,8 +95,8 @@ opt_detail_plants <- opt_detail_plants %>%
   ungroup() %>%
   mutate(temp = paste(Grade, Caliper, sprintf("%.4f", Prod.Width), 
                       Dia, Wind, Mill, remove = F)) %>%
-  group_by(Year, Plant) %>%
-  arrange(Year, Plant, temp) %>%
+  group_by(Plant) %>%
+  arrange(Plant, temp) %>%
   mutate(`Board Index` = dense_rank(temp),
          Tons = round(Tons, 1),
          Prod.Plant.Count = as.integer(Prod.Plant.Count)) %>%
@@ -118,6 +118,8 @@ opt_files <- file.path("G:", "000_Supply Chain", "_Optimization",
 die_sheet <- read.xlsx(file.path(opt_files, 
                                  "Board Consumption - 2016 All Sites.xlsx"),
                        startRow = 3)
+# This comes from the Read Consumption by Die.R script
+die_sheet <- cons
 
 # QlikView Consumption by Die Report on the Consumption tab on the 
 #   Fiber Analysis report.  See the SUSConsumption Bookmark
@@ -125,84 +127,83 @@ die_sheet <- read.xlsx(file.path(opt_files,
 #die_roll <- read.xlsx(file.path(fpinput, "QV SUS Roll Consumption 2015-2017.xlsx"))
 
 # Just keep the SUS rows
-die_sheet <- die_sheet %>%
-  filter(Board.Type.Group == "SUS")
+#die_sheet <- die_sheet %>%
+#  filter(Board.Type.Group == "SUS")
 
-die_sheet <- die_sheet %>%
-  select(-Die) %>%
-  mutate(Die = Die.Fix)
+#die_sheet <- die_sheet %>%
+#  select(-Die) %>%
+#  mutate(Die = Die.Fix)
 
-die_sheet$TON <- round(die_sheet$TON, 1)
+#die_sheet$TON <- round(die_sheet$TON, 1)
 
 # Need to get the full grade out of the Material.Description field for the "AK"
 # records.  If OM or PK, just add "XX".  OTherwise use the Short field
-die_sheet <- die_sheet %>%
-  mutate(Grade = ifelse(
-    Board.Type.Short %in% c("PK", "OM"),
-    paste(Board.Type.Short, "XX", sep = ""),
-    ifelse(
-      Board.Type.Short == "AK",
-      ifelse(
-        str_sub(Material.Description, 1, 1) == "I",
-        str_sub(Material.Description, 5, 8),   # Imperial
-        str_sub(Material.Description, 6, 9)    # Metric
-      ), Board.Type.Short)
-  ))
+#die_sheet <- die_sheet %>%
+#  mutate(Grade = ifelse(
+#    Board.Type.Short %in% c("PK", "OM"),
+#    paste(Board.Type.Short, "XX", sep = ""),
+#    ifelse(
+#      Board.Type.Short == "AK",
+#      ifelse(
+#        str_sub(Material.Description, 1, 1) == "I",
+#       str_sub(Material.Description, 5, 8),   # Imperial
+#        str_sub(Material.Description, 6, 9)    # Metric
+#      ), Board.Type.Short)
+#  ))
 
-die_sheet$Board.Caliper <- as.character(die_sheet$Board.Caliper)
+#die_sheet$Board.Caliper <- as.character(die_sheet$Board.Caliper)
 
-die_sheet <- die_sheet %>%
-  mutate(Caliper = ifelse(Board.Caliper == "0",
-                          ifelse(str_sub(Material.Description, 1, 1) == "I",
-                                 str_sub(Material.Description, 3, 4),
-                                 str_sub(Material.Description, 4, 5)),
-                          Board.Caliper))
+#die_sheet <- die_sheet %>%
+#  mutate(Caliper = ifelse(Board.Caliper == "0",
+#                          ifelse(str_sub(Material.Description, 1, 1) == "I",
+#                                 str_sub(Material.Description, 3, 4),
+#                                 str_sub(Material.Description, 4, 5)),
+#                          Board.Caliper))
 
-
-die_sheet <- die_sheet %>%
-  mutate(Width = 
-           ifelse(Board.Width == "0",
-                  ifelse(str_sub(Material.Description, 1, 1) == "I",
-                         as.numeric(str_sub(Material.Description, 10, 17)),
-                         as.numeric(str_sub(Material.Description, 11, 14))),
-                  Board.Width))
 
 die_sheet <- die_sheet %>%
-  mutate(Dia = 
-           ifelse(Board.Type.Group == "SUS", 
-                  ifelse(str_sub(Material.Description, 1, 1) %in% c("I", "("),
-                         str_sub(Material.Description, -7, -5),
-                         str_sub(Material.Description, -10, -6)), ""))
+  rename(Width = Board.Width, Caliper = Board.Caliper)
+#           ifelse(Board.Width == "0",
+#                  ifelse(str_sub(Material.Description, 1, 1) == "I",
+#                         as.numeric(str_sub(Material.Description, 10, 17)),
+#                         as.numeric(str_sub(Material.Description, 11, 14))),
+#                  Board.Width))
+
+#die_sheet <- die_sheet %>%
+#  mutate(Dia = 
+#           ifelse(Board.Type.Group == "SUS", 
+#                  ifelse(str_sub(Material.Description, 1, 1) %in% c("I", "("),
+#                         str_sub(Material.Description, -7, -5),
+#                         str_sub(Material.Description, -10, -6)), ""))
 
 die_sheet$Width <- as.numeric(die_sheet$Width)
-die_sheet$Year <- as.character(die_sheet$Year)
+#die_sheet$Year <- as.character(die_sheet$Year)
 
-die_sheet <- die_sheet %>%
-  mutate(Grade = ifelse(Grade == "SUSFC02", "FC02", Grade))
+#die_sheet <- die_sheet %>%
+#  mutate(Grade = ifelse(Grade == "SUSFC02", "FC02", Grade))
 
 
-die_sheet <- die_sheet %>%
-  mutate(Wind = 
-           str_sub(Material.Description, str_length(Material.Description), -1))
+#die_sheet <- die_sheet %>%
+#  mutate(Wind = 
+#           str_sub(Material.Description, str_length(Material.Description), -1))
 
-die_sheet <- die_sheet %>%
-  mutate(Plant = paste("PLT0", Plant, sep = ""))
+#die_sheet <- die_sheet %>%
+#  mutate(Plant = paste("PLT0", Plant, sep = ""))
 
-die_sheet <- die_sheet %>%
-  group_by(Year, Plant, PlantName, Board.Type.Group, MRPC2.Text, Die, 
-           `Sheet./.Web`, Die.Description, Width, Grade, Caliper,
-           Dia, Wind) %>%
-  summarize(TON = sum(TON)) %>%
-  ungroup()
+#die_sheet <- die_sheet %>%
+#  group_by(Year, Plant, PlantName, Board.Type.Group, MRPC2.Text, Die, 
+#           `Sheet./.Web`, Die.Description, Width, Grade, Caliper,
+#           Dia, Wind) %>%
+#  summarize(TON = sum(TON)) %>%
+#  ungroup()
 
 # Create separate tons columns for each diameter
 die_sheet <- die_sheet %>%
-  spread(Dia, TON)
+  spread(Dia, Tons)
 
 # Join them together
 opt_detail_plants_die <- left_join(opt_detail_plants, die_sheet,
-                                   by = c("Year" = "Year",
-                                          "Plant" = "Plant",
+                                   by = c("Plant" = "Plant",
                                           "Grade" = "Grade",
                                           "Caliper" = "Caliper",
                                           "Wind" = "Wind",
@@ -217,18 +218,17 @@ opt_detail_plants_die <- opt_detail_plants_die %>%
 
 # Add another index to identify multiple dies for the same board
 opt_detail_plants_die <- opt_detail_plants_die %>%
-  group_by(Year, Plant, `Board Index`) %>%
+  group_by(Plant, `Board Index`) %>%
   mutate(Die.Index = dense_rank(Die)) %>%
   ungroup()
 
 opt_detail_plants_die <- opt_detail_plants_die %>%
-  arrange(Year, Plant, `Board Index`, Die.Index)
+  arrange(Plant, `Board Index`, Die.Index)
 
 opt_detail_plants_die <- opt_detail_plants_die %>%
   mutate(Desired.Board = " ",
          OK = " ") %>%
-  select(Year, 
-         Plant,
+  select(Plant,
          `Plant Name` = Plant.Name, 
          Plant.Abrev,
          `Board Index`,
@@ -248,7 +248,7 @@ opt_detail_plants_die <- opt_detail_plants_die %>%
          `Parent Plant Count` = Parent.Plant.Count,
          `Parent Total Tons` = Parent.DMD,
          `Enter "N" if not OK` = OK,
-         `Press Format` = `Sheet./.Web`, 
+         #`Press Format` = `Sheet./.Web`, 
          Die, 
          #`Die Tons` = TON,
          `Die Description` = Die.Description, 
@@ -256,8 +256,8 @@ opt_detail_plants_die <- opt_detail_plants_die %>%
          Die.Index,
          everything())
 
-opt_detail_plants_die <- opt_detail_plants_die %>%
-  select(-(CalDW:Board.Type.Group))
+#opt_detail_plants_die <- opt_detail_plants_die %>%
+#  select(-(CalDW:Board.Type.Group))
 
 # Clear the data for duplicate rows where the Die.Index > 1
 opt_detail_plants_die[opt_detail_plants_die$Die.Index > 1, 6:20] <- ""
@@ -364,7 +364,7 @@ thicklineStyle <- createStyle(borderStyle = "thick",
 
 addWorksheet(wb, "Parent Rolls", tabColour = "lightblue")
 odp_x <- opt_detail_plants %>%
-  select(Year, Grade, Caliper, `Parent Width` = Parent.Width, Dia, Wind, Mill,
+  select(Grade, Caliper, `Parent Width` = Parent.Width, Dia, Wind, Mill,
          `Parent Tons` = Parent.DMD, `Prod Width` = Prod.Width, 
          `Prod Tons` = Prod.Gross.Tons, `Trim Width` = Prod.Trim.Width, 
          `Trim Tons` = Prod.Trim.Tons, `Plant Name` = Plant.Name, 
@@ -372,38 +372,38 @@ odp_x <- opt_detail_plants %>%
          `Parent VMI` = Parent.Bev.VMI, `Prod Ship Count` = Prod.DMD.Count,
          `Parent DOH` = Sim.Parent.Avg.OH.DOH, Parent.Policy,
          everything()) %>%
-  arrange(Year, Grade, Caliper, `Parent Width`, Dia, Wind, `Parent Tons`, 
+  arrange(Grade, Caliper, `Parent Width`, Dia, Wind, `Parent Tons`, 
           `Prod Width`)
 
 writeData(wb, "Parent Rolls", odp_x)
 
 conditionalFormatting(wb, "Parent Rolls", cols = 1:ncol(odp_x), 
                       rows = 2:nrow(odp_x),
-                      rule = "$D2 != $D1", style = thicklineStyle)
+                      rule = "$C2 != $C1", style = thicklineStyle)
 # Hide the cell entry if it the same as the preceeding (and a different parent)
 conditionalFormatting(wb, "Parent Rolls", 
-                      cols = c(4:12), rows = 2:nrow(odp_x), 
-                      rule = "AND(D2 == D1, $D2 == $D1)", style = 
+                      cols = c(3:11), rows = 2:nrow(odp_x), 
+                      rule = "AND(C2 == C1, $C2 == $C1)", style = 
                         createStyle(fontColour = "white"))
 # Need this twice as I can't make it skip over the Plant Name column
 conditionalFormatting(wb, "Parent Rolls", 
-                      cols = c(15:ncol(odp_x)), rows = 2:nrow(odp_x), 
-                      rule = "AND(O2 == O1, $D2 == $D1)", style = 
+                      cols = c(14:ncol(odp_x)), rows = 2:nrow(odp_x), 
+                      rule = "AND(N2 == N1, $D2 == $C1)", style = 
                         createStyle(fontColour = "white"))
 conditionalFormatting(wb, "Parent Rolls", 
-                      cols = 9, rows = 2:nrow(odp_x),
-                      rule = "$I2 <= $D2/2", 
+                      cols = 8, rows = 2:nrow(odp_x),
+                      rule = "$H2 <= $C2/2", 
                       style = createStyle(bgFill = "orange"))
-addStyle(wb, "Parent Rolls", nbrStyle, cols = c(8, 10, 14, 16), 
+addStyle(wb, "Parent Rolls", nbrStyle, cols = c(7, 9, 13, 15), 
          rows = 2:nrow(odp_x), 
          gridExpand = TRUE)
 addStyle(wb, "Parent Rolls", headerStyle, cols = 1:ncol(odp_x),
          rows = 1)
 addStyle(wb, "Parent Rolls", createStyle(wrapText = TRUE), 
-         cols = c(4,8:12, 14:17), rows = 1, stack = TRUE)
+         cols = c(3,7:11, 13:16), rows = 1, stack = TRUE)
 addStyle(wb, "Parent Rolls", createStyle(halign = "center"),
-         cols = c(6, 7), rows = 1:nrow(odp_x), gridExpand = TRUE, stack = TRUE)
-setColWidths(wb, "Parent Rolls", cols = 13, widths = "auto")
+         cols = c(5, 6), rows = 1:nrow(odp_x), gridExpand = TRUE, stack = TRUE)
+setColWidths(wb, "Parent Rolls", cols = 12, widths = "auto")
 freezePane(wb, "Parent Rolls", firstActiveRow = 2)
 
 instr <- data_frame(Item = 1, 
@@ -428,21 +428,21 @@ rm(instr)
 # Create a summary by roll spread by diameters 
 #
 
-rd_2016 <- read_csv(file.path(proj_root, paste0("Data/All Shipments Fixed ", 
-                          "2016", ".csv")))
+rd_cy <- read_csv(file.path(proj_root, paste0("Data/all-shipments-fixed-", 
+                          mYear, ".csv")))
 
-rd_2016 <- rd_2016 %>%
+rd_cy <- rd_cy %>%
   separate(CalDW, c("Cal", "Dia", "Wind"), sep = "-", remove = FALSE)
 
 
 if (projscenario == "Europe") {
-  rd_2016 <- rd_2016 %>%
+  rd_cy <- rd_cy %>%
     filter(str_sub(Plant, 1, 5) == "PLTEU")
 }
 
 # Just keep the items in the optimal solution 
 rd_opt <- 
-  semi_join(rd_2016, opt_detail,
+  semi_join(rd_cy, opt_detail,
             by = c("Mill" = "Fac",
                    "Grade" = "Grade",
                    "Cal" = "Caliper",
@@ -461,7 +461,7 @@ rd_opt <- rd_opt %>%
 
 # Summarize Tons by Year, Diam & Wind
 rd_opt <- rd_opt %>%
-  group_by(Year, Mill, Grade, Cal, Width, Dia, Wind, Nbr.Dia, 
+  group_by(Mill, Grade, Cal, Width, Dia, Wind, Nbr.Dia, 
            Nbr.Wind, Nbr.Plants) %>%
   summarize(Tons = round(sum(Tons),0)) %>%
   mutate(Tons = format(Tons, big.mark = ",")) %>%
@@ -469,7 +469,7 @@ rd_opt <- rd_opt %>%
 
 # Spread by Year, Dia
 rd_opt <- rd_opt %>%
-  unite(YD, Year, Dia) %>%
+  unite(YD, Dia) %>%
   spread(YD, Tons, fill = "", convert = TRUE)
 
 rd_opt <- rd_opt %>%

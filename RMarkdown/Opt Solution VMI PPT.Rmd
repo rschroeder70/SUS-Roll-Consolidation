@@ -1051,8 +1051,9 @@ rm(opt_new, opt_new_f, opt_new_c, opt_new_m, wb)
 # preferred sizes, and not just used as substitutes
 
 cons <- read.xlsx(file.path(proj_root, "Data", 
-                           "QV SUS Roll Consumption 2015-2017.xlsx"),
+                           "QV SUS Roll Consumption 2016-2017.xlsx"),
                  detectDates = T)
+
 
 cons <- cons %>%
   mutate(Plant = paste0("PLT0", Plant),
@@ -1061,10 +1062,10 @@ cons <- cons %>%
   filter(Board.Width > 0)
 
 cons <- cons %>%
-  mutate(M.I = str_sub(Material.Description, 1, 1))
+  filter(MonthYear >= floor_date(start_date, "month") & MonthYear <= end_date)
 
 cons <- cons %>%
-  filter(Year %in% c("2016", "2017"))
+  mutate(M.I = str_sub(Material.Description, 1, 1))
 
 # Grade
 cons <- cons %>%
@@ -1085,7 +1086,7 @@ cons <- cons %>%
 
 # Aggregate over the dates
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, 
+  group_by(Plant, PlantName, 
            MRPC2.Text, Die, Die.Description,
            Grade, Board.Caliper, Dia, Wind, Board.Width, M.I,
            Material, Material.Description) %>%
@@ -1095,25 +1096,25 @@ cons <- cons %>%
 # Calculate the percentage of tons by board width for the dies with 
 #   multiple widths.  
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  group_by(Plant, PlantName, Die, Die.Description) %>%
   mutate(Nbr.Widths = n_distinct(Board.Width),
          Tons = round(Tons, 0),
          Die.Tons = round(sum(Tons), 0),
          Die.Pct = round(100*Tons/Die.Tons, 0)) %>%
   ungroup() %>%
-  arrange(Year, Plant, Die, desc(Board.Width)) 
+  arrange(Plant, Die, desc(Board.Width)) 
 
 
 # Calculate the percentage of tons by board width for the dies with 
 #   multiple widths.  Ignore Grade & Caliper
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  group_by(Plant, PlantName, Die, Die.Description) %>%
   mutate(Nbr.Boards = n_distinct(Board.Width, Grade, Board.Caliper),
          Die.Tons = sum(Tons)) %>%
   mutate(Die.Pct = round(100*Tons/Die.Tons, 2)) %>%
   mutate(Nbr.Subs = sum(ifelse(Die.Pct < 5, 1, 0))) %>%
   ungroup() %>%
-  arrange(Year, Plant, Die, desc(Board.Width)) 
+  arrange(Plant, Die, desc(Board.Width)) 
 
 # Assume any boards that made up less than 5% of the die tons were
 #   un-desired substitutes
@@ -1147,14 +1148,14 @@ cons_final <- left_join(cons_pre, cons_parent,
 
 cons_final <- cons_final %>%
   select(-M.I) %>%
-  arrange(Year, Plant, Die, desc(Tons))
+  arrange(Plant, Die, desc(Tons))
 
 cons_final <- cons_final %>%
   filter(Parent.Width != Board.Width)
 
 
 cons_final <- cons_final %>% 
-  select(Year, Board.Caliper, Fac, Grade, Board.Width, Dia, Wind, Plant, 
+  select(Board.Caliper, Fac, Grade, Board.Width, Dia, Wind, Plant, 
          `Plant Name` = PlantName, MRPC2.Text, Die,
          Die.Description, 
          Material, Material.Description, Tons, 
@@ -1162,7 +1163,7 @@ cons_final <- cons_final %>%
          Parent.Width, Parent.Material, Parent.Material.Descr)
 
 cons_final <- cons_final %>%
-  arrange(Year, Board.Caliper, Fac, Grade, Board.Width, Dia, Wind, Plant,
+  arrange(Board.Caliper, Fac, Grade, Board.Width, Dia, Wind, Plant,
           Die, Tons)
 
 cons_final <- cons_final %>%

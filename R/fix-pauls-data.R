@@ -43,8 +43,9 @@ pd <- pd %>%
 pd <- pd %>% select(-MFGPlant, -Batch)
 
 # Summarize over batches once we are done with them
+# (uses new 0.7 syntax)
 pd <- pd %>%
-  group_by_(.dots = setdiff(names(pd), "Tons")) %>%
+  group_by_at(vars(names(pd), -Tons)) %>%
   summarize(Tons = sum(Tons)) %>%
   ungroup()
 

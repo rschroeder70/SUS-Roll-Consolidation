@@ -3,25 +3,28 @@
 # Sus Consumption by Die
 #
 # The file comes from QlikView Fiber Analysis Consumption by Die Report, 
-# Bookmark = SUS Web Consumed with the Date set to Daily.
+# Bookmark = SUS Consumption with the Date set to Month Year.
 #
 
-web <- read.xlsx(file.path(proj_root, "Data", 
-                           "QV SUS Roll Consumption 2015-2017.xlsx"),
+cons <- read.xlsx(file.path(proj_root, "Data", 
+                           "QV SUS Roll Consumption 2016-2017.xlsx"),
                  detectDates = T)
 
-web <- web %>%
+cons <- cons %>%
   mutate(Plant = paste0("PLT0", Plant),
-         Year = as.character(year(MonthYear)),
          Board.Width = as.numeric(Board.Width)) %>%
   filter(Board.Width > 0)
 
-web <- web %>%
+# Use the floor_date in case the data starts after the 1st
+cons <- cons %>%
+  filter(MonthYear >= floor_date(start_date, "month") & MonthYear <= end_date)
+
+cons <- cons %>%
   mutate(M.I = str_sub(Material.Description, 1, 1))
 
 # Need to get the full grade out of the Material.Description field for the "AK"
 # records.  If OM or PK, just add "XX".  OTherwise use the Short field
-web <- web %>%
+cons <- cons %>%
   mutate(Grade = ifelse(
     Board.Type.Short %in% c("PK", "OM"),
     paste(Board.Type.Short, "XX", sep = ""),
@@ -33,19 +36,19 @@ web <- web %>%
         str_sub(Material.Description, 6, 9)    # Metric
       ), Board.Type.Short)
   ))
-web <- web %>%
+cons <- cons %>%
   mutate(Grade = ifelse(Grade == "SUSFC02", "FC02", Grade))
 
-web <- web %>%
+cons <- cons %>%
   mutate(Wind = str_sub(Material.Description, 
                         str_length(Material.Description), -1))
-web <- web %>%
+cons <- cons %>%
   mutate(Dia = ifelse(M.I == "I",
                       str_sub(Material.Description, 19, 20),
                       str_sub(Material.Description, 16, 19)))
 
-web <- web %>%
-  group_by(Year, Plant, PlantName, 
+cons <- cons %>%
+  group_by(Plant, PlantName, 
            MRPC2.Text, Die, Die.Description,
            Grade, Board.Caliper, Dia, Wind, Board.Width, M.I) %>%
   dplyr::summarize(Tons = sum(TON)) %>%
@@ -63,26 +66,26 @@ if (any(duplicated(vmi_rolls))) stop("Duplicates in VMI List")
 vmi_rolls <- vmi_rolls %>%
   mutate(Bev.VMI = T)
 
-web_vmi <- left_join(filter(web, Year == "2016"), vmi_rolls,
+cons_vmi <- left_join(cons, vmi_rolls,
                         by = c("Grade", 
                                "Board.Caliper" = "Caliper", 
                                "Board.Width" = "Width"))
 
-web_vmi <- web_vmi %>%
+cons_vmi <- cons_vmi %>%
   mutate(Bev.VMI = ifelse(is.na(Bev.VMI), F, T))
 
-web_vmi <- web_vmi %>%
+cons_vmi <- cons_vmi %>%
   mutate(SUS.Type = ifelse(Bev.VMI, "VMI", 
                            ifelse(M.I == "M", "Export", "CPD")))
 
-web_vmi %>% group_by(SUS.Type) %>%
+cons_vmi %>% group_by(SUS.Type) %>%
   summarize(Tons = sum(Tons))
 
 # Aggregate over the
-dies <- web %>% 
-  select(Year, Grade, Board.Caliper, Dia, Wind, Board.Width, Die, 
+dies <- cons %>% 
+  select(Grade, Board.Caliper, Dia, Wind, Board.Width, Die, 
          Die.Description) %>%
-  group_by(Year, Grade, Board.Caliper, Dia, Wind, Board.Width) %>%
+  group_by(Grade, Board.Caliper, Dia, Wind, Board.Width) %>%
   dplyr::mutate(Nbr.Dies = n(), 
          Die.List = paste0(Die, collapse = ", "),
          Die.Descr.List = paste0(Die.Description, collapse = ", ")) %>%
@@ -90,10 +93,10 @@ dies <- web %>%
   ungroup() %>%
   distinct()
 
-dies_plants <- web %>% 
-  select(Year, Plant, Grade, Board.Caliper, Dia, Wind, Board.Width, Die, 
+dies_plants <- cons %>% 
+  select(Plant, Grade, Board.Caliper, Dia, Wind, Board.Width, Die, 
          Die.Description) %>%
-  group_by(Year, Plant, Grade, Board.Caliper, Dia, Wind, Board.Width) %>%
+  group_by(Plant, Grade, Board.Caliper, Dia, Wind, Board.Width) %>%
   dplyr::mutate(Nbr.Dies = n(), 
          Die.List = paste0(Die, collapse = ", "),
          Die.Descr.List = paste0(Die.Description, collapse = ", ")) %>%
@@ -101,9 +104,8 @@ dies_plants <- web %>%
   ungroup() %>%
   distinct()
 
-plant_die_board <- web %>% 
-  filter(Year == "2016") %>%
-  group_by(Year, Plant, PlantName, Die) %>%
+plant_die_board <- cons %>% 
+  group_by(Plant, PlantName, Die) %>%
   summarize(Tons = sum(Tons),
             Board.Count = n()) %>%
   ungroup()
