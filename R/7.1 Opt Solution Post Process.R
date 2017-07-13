@@ -291,7 +291,7 @@ opt_parents <- opt_detail %>%
            Parent.dclass,
            Sim.Parent.Avg.OH, Sim.Parent.Qty.Fill.Rate, 
            Sim.Parent.Avg.OH.DOH,
-           Parent.Distrib, Parent.Type, Parent.OTL, cycle_dbr) %>%
+           Parent.Distrib, Parent.Type, Parent.OTL, Parent.DBR) %>%
   summarize(Parent.Trim.Loss = sum(Prod.Trim.Tons),
             Parent.Bev.vMI.Count = sum(Prod.Bev.VMI),
             Parent.Bev.VMI.Prod.Count = sum(Prod.Bev.VMI),

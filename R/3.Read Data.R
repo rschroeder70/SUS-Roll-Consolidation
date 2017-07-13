@@ -16,20 +16,6 @@
 
 print(paste("Reading Roll Shipment Data for ", mYear, sep = ""), quote = F)
 
-# Read the plant codes
-plant_codes <- read.xlsx(file.path(proj_root, 
-                                   "Data", "GPICustomerPlantCodes.xlsx"))
-plant_codes <- plant_codes %>%
-  select(Cust, SAP.Code, Int.Ext.Whs = `Int/Ext/whse`) %>% 
-  filter(!is.na(Cust)) %>%
-  distinct(Cust, SAP.Code, .keep_all = TRUE)
-# Make sure no duplicate Cust codes
-if (nrow(plant_codes %>% group_by(Cust) %>%
-         mutate(count = n()) %>% 
-         filter(count > 1)) > 0) {
-  stop("Duplicates in the PlantCodes table")
-}
-
 facility_names <- read_csv(file.path(proj_root, "Data", "FacilityNames.csv"))
 # Make sure not duplicate Facility.ID
 if (nrow(facility_names %>% group_by(Facility.ID) %>%
@@ -45,129 +31,10 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
                                                  mYear, ".csv", sep = "")))  
 } else {
 
-  # Read the data file:
-  rawDataAll <- read.xlsx(file.path(fpinput,consdatafile), 
-                          sheet = consdatasheet, 
-                          colNames = TRUE,
-                          detectDates = TRUE, check.names = TRUE)
-  
-  rawDataAll <- as_tibble(rawDataAll)
-  rawDataAll <- rawDataAll %>%
-    select(Ship.to, Sold.to.pt, Description, Batch, MFGPlant, 
-           Date = Ac.GI.date, Cal = Cal.lb, Grade, Width = Calc.width, 
-           Dia, Machine, Tons = Net.Ton, Grade.Type, I.M)
-  
-  rawDataAll <- rawDataAll %>%
-    mutate(Cal = as.character(Cal))
-  rawDataAll <- rawDataAll %>% filter(Grade.Type == "SUS")
-  rawDataAll <- rawDataAll %>% filter(!Grade %in% c("AKJP", "AK25"))
-  rawDataAll <- rawDataAll %>% mutate(Year = mYear)
-  rawDataAll <- rawDataAll %>% mutate(I.M = str_trim(I.M))
-  
-  # Create the Mill field.  If missing a MFGPlant,
-  # fill in the MFGPlant data from the first two postitions 
-  # of the Batch nbr
-  rawDataAll <- rawDataAll %>%
-    mutate(Mill = ifelse(is.na(MFGPlant), 
-                         paste("00", str_sub(Batch, 1, 2), sep = ""), 
-                         MFGPlant)) 
-  rawDataAll <- rawDataAll %>% select(-MFGPlant, -Batch)
-  
-  # Summarize over batches once we are done with them
-  # dots <- lapply(setdiff(names(rawDataAll), "Tons"), as.symbol)
-  rawDataAll <- rawDataAll %>%
-    group_by_(.dots = setdiff(names(rawDataAll), "Tons")) %>%
-    summarize(Tons = sum(Tons)) %>%
-    ungroup()
-  
-  rawDataAll <- rawDataAll %>%
-    mutate(Wind = str_sub(Description, str_length(Description), -1))
-  
-  rawDataAll <- left_join(rawDataAll, plant_codes,
-                          by = c("Ship.to" = "Cust"))
-  
-  # Exclude the R&D in West Monroe and mills
-  rawDataAll <- rawDataAll %>%
-    filter(!(SAP.Code %in% c("5538", "5539", "PLT00031", "PLT00033", "PLT00040")))
-  
-  # Exclude Verst and Piscataway
-  rawDataAll <- rawDataAll %>%
-    filter(!(SAP.Code %in% c("PLT00508", "PLT00019")))
-  
-  # If the ship to is a Europe port, then use the sold-to to get the actual
-  # location.  Rename the SAP.Code field so it doesn't conflict with what we 
-  # already have
-  rawDataAll <-
-    left_join(rawDataAll, rename(select(plant_codes, Cust, SAP.Code),
-                                 SAP.Sold.To = SAP.Code),
-              by = c("Sold.to.pt" = "Cust"))
-  
-  # Where are they different
-  rawDataAll %>% filter(SAP.Code != SAP.Sold.To) %>%
-    group_by(Ship.to, SAP.Code, Sold.to.pt, SAP.Sold.To) %>%
-    summarize(Tons = sum(Tons))
-  
-  # Update the SAP.Code to the sold where they are not equal (and where the
-  # SAP.Sold.To is not NA).  This fixes a
-  # Portland issue, too.
-  rawDataAll <- rawDataAll %>%
-    mutate(SAP.Code = ifelse(!is.na(SAP.Sold.To) & (SAP.Code != SAP.Sold.To), 
-                             SAP.Sold.To, SAP.Code))
-  
-  # Get rid of the Sold.To
-  rawDataAll <- rawDataAll %>%
-    select(-SAP.Sold.To)
-  
-  # If we don't have an SAP.Code (Plant), then it should be open market
-  # or Japan and we don't want it
-  rawDataAll <- rawDataAll %>%
-    ungroup() %>%
-    filter(!is.na(SAP.Code)) %>%
-    rename(Plant = SAP.Code)
-  
-  # Check the total tons left
-  rawDataAll %>% summarize(sum(Tons))
-  
-  # Figure out what to do with the missing machines (2015 data)
-  rawDataAll <- rawDataAll %>%
-    mutate(Machine = ifelse(
-      is.na(Machine),
-      ifelse(
-        (Mill == "0031" | Mill == "31"),            # WM
-        ifelse(Cal >= 24, "06", "07"),
-        ifelse(Cal >= 18, "02", "01")  # Macon
-      ),
-      Machine
-    ))
-  
-  # Build the Mill-Machine field
-  rawDataAll <- rawDataAll %>% 
-    mutate(Mill = ifelse((Mill == "0031" | Mill == "31"), "W", "M")) %>%
-    mutate(Mill = paste(Mill, as.numeric(Machine), sep = "")) %>%
-    select(-Machine)
-  
-  # Get rid of the following:
-  rawDataAll <- rawDataAll %>%
-    select(-Ship.to, -Sold.to.pt, -Description, -Int.Ext.Whs, -Grade.Type)
-  
-  # Summarize again over the fields that are left
-  rawDataAll <- rawDataAll %>%
-    group_by_(.dots = setdiff(names(rawDataAll), "Tons")) %>%
-    summarize(Tons = sum(Tons)) %>%
-    ungroup()
-  
-  # How many SKUs are we starting with
-  rawDataAll %>% 
-    summarize(Prod.Count = n_distinct(Mill, Grade, Cal, Wind, Width, Dia),
-              Plants = n_distinct(Plant))
-  
-  # Save as a csv at this point - prior to diameter consolidation
-  write_csv(rawDataAll, 
-            paste0("Data/All Shipments No SKU Fix ", mYear, ".csv"))
-  
-  #rawDataAll <- read_csv(paste0("Data/All Shipments No SKU Fix ", mYear, ".csv"))
-  
   print("Proceeding to fix SKU data")
+  rawDataAll <- read_csv(paste0("Data/All Shipments No SKU Fix-", mYear, ".csv"))
+  rawDataAll$Cal <- as.character(rawDataAll$Cal)
+
   # Keep all the original info in the "Orig" suffix fields
   
   rawDataAll <- rawDataAll %>%
@@ -207,7 +74,7 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   # Pick the maximum diameter that shipped from
   # each mill
   rawDataAll <- rawDataAll %>% 
-    group_by(Year, Mill.Orig, Grade.Orig, Cal.Orig, Wind.Orig, 
+    group_by(Mill.Orig, Grade.Orig, Cal.Orig, Wind.Orig, 
              Width.Orig, I.M) %>%
     mutate(Max.Diam = max(Dia.Fix)) %>%
     mutate(Dia.Fix = Max.Diam) %>%
@@ -215,14 +82,14 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   
   # Look for low volume SKUS made at more than 1 mill
   mill_fix <- rawDataAll %>%
-    select(Year, Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Width.Fix, 
+    select(Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Width.Fix, 
            Wind.Fix, Tons, Plant) %>%
-    group_by(Year, Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, 
+    group_by(Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, 
              Width.Fix) %>%
     summarize(Mill.Tons = sum(Tons),
               Plant.Count = n_distinct(Plant)) %>%
     ungroup() %>%
-    group_by(Year, Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix) %>%
+    group_by(Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix) %>%
     mutate(Nbr.Mills = n(),
            Total.Tons = sum(Mill.Tons)) %>%
     ungroup() %>%
@@ -235,25 +102,25 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   mill_fix <- 
     left_join(mill_fix,
               summarize(group_by(
-                select(rawDataAll, Year, Mill.Fix, Grade.Fix, Cal.Fix, 
+                select(rawDataAll, Mill.Fix, Grade.Fix, Cal.Fix, 
                        Dia.Fix, Wind.Fix, Width.Fix, Tons), 
-                Year, Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix), 
+                Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix), 
                 Tons = sum(Tons)),
-              by = c("Year", "Grade.Fix", "Cal.Fix", "Dia.Fix", 
+              by = c("Grade.Fix", "Cal.Fix", "Dia.Fix", 
                      "Wind.Fix", "Width.Fix")) %>%
-    arrange(Year, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix, desc(Tons))
+    arrange(Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix, desc(Tons))
   
   # Pick the row with the max tons
   mill_fix <- mill_fix %>%
-    group_by(Year, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix, Old.Mill) %>%
+    group_by(Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, Width.Fix, Old.Mill) %>%
     slice(which.max(Tons)) %>%
     rename(New.Mill = Mill.Fix)
   
   rawDataAll <- 
     left_join(rawDataAll, 
-              select(mill_fix, Year, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, 
+              select(mill_fix, Grade.Fix, Cal.Fix, Dia.Fix, Wind.Fix, 
                      Width.Fix, Old.Mill, New.Mill),
-              by = c("Year", "Grade.Fix", "Cal.Fix", "Dia.Fix", "Wind.Fix", 
+              by = c("Grade.Fix", "Cal.Fix", "Dia.Fix", "Wind.Fix", 
                      "Width.Fix", "Mill.Fix" = "Old.Mill")) %>%
     mutate(Mill.Fix = ifelse(is.na(New.Mill), Mill.Fix, New.Mill)) %>%
     select(-New.Mill)
@@ -539,7 +406,7 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   # Pick the maximum diameter that shipped from
   # each mill
   rawDataAll <- rawDataAll %>% 
-    group_by(Year, Mill.Fix, Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix, I.M) %>%
+    group_by(Mill.Fix, Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix, I.M) %>%
     mutate(Max.Diam = max(Dia.Fix)) %>%
     mutate(Dia.Fix = Max.Diam) %>%
     ungroup()
@@ -590,7 +457,7 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   
   # Do this one more time to consolidate diameters from the adjusted mills
   rawDataAll <- rawDataAll %>% 
-    group_by(Year, Mill.Fix, Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix, I.M) %>%
+    group_by(Mill.Fix, Grade.Fix, Cal.Fix, Wind.Fix, Width.Fix, I.M) %>%
     mutate(Max.Diam = max(Dia.Fix)) %>%
     mutate(Dia.Fix = Max.Diam) %>%
     ungroup()
@@ -615,7 +482,7 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   
   # Aggregate by date and just keep the fixed data
   rawDataAll <- rawDataAll %>% 
-    group_by(Year, Date, Mill.Fix, Plant, Grade.Fix, CalDW, Width.Fix, I.M) %>%
+    group_by(Date, Mill.Fix, Plant, Grade.Fix, CalDW, Width.Fix, I.M) %>%
     summarize(Tons = sum(Tons)) %>%
     rename(Mill = Mill.Fix, Grade = Grade.Fix, Width = Width.Fix) %>%
     ungroup() %>%
@@ -634,6 +501,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
             paste0("Data/all-shipments-fixed-", mYear, ".csv", sep  = ""))
 }
 
+start_date <- min(rawDataAll$Date)
+end_date <- max(rawDataAll$Date)
+
 # Check the tons and # of SKUs
 rawDataAll %>% group_by(Year) %>%
   unite(MGC, Mill, Grade, CalDW, Width) %>%
@@ -650,7 +520,7 @@ if (!exists("trim_freight")) {
     rename(Cost.Ton = `Cost/Ton`)
 }
 trim_freight_plant <- rawDataAll %>%
-  group_by(Year, Mill, Plant, Grade, CalDW, Width, Facility.Name) %>%
+  group_by(Mill, Plant, Grade, CalDW, Width, Facility.Name) %>%
   dplyr::summarize(Tons = sum(Tons)) %>%
   left_join(trim_freight,
             by = c("Mill" = "Mill",
@@ -663,7 +533,7 @@ trim_freight_plant$Cost.Ton[is.na(trim_freight_plant$Cost.Ton)] <- 150
 # Calculate the cost per ton for each plant based on the weighted volume 
 # of each size roll shipping to each plant
 trim_freight_plant <- trim_freight_plant %>%
-  group_by(Year, Mill, Grade, CalDW, Width) %>%
+  group_by(Mill, Grade, CalDW, Width) %>%
   mutate(Freight.Cost = Tons * Cost.Ton) %>%
   dplyr::summarize(Trim.Frt.Cost = sum(Tons * Cost.Ton)/sum(Tons))
 trim_freight_plant$Width <- as.character(trim_freight_plant$Width)
@@ -777,3 +647,4 @@ prod_fixed <-
 
              
 print("Finished Reading Roll Shipment Data", quote = FALSE)
+

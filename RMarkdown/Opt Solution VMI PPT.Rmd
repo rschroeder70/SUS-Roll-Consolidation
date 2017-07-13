@@ -922,6 +922,8 @@ gtrim <- ggplot(data = g_opt_detail,
 #               y = ~Prod.Trim.Tons) %>%
 #  layer_bars(fill = ~Parent.Policy)
 
+gtrim
+
 mydoc <- addSlide(mydoc, slide.layout = "Custom Layout")
 mydoc <- addTitle(mydoc, paste0("Parent Roll Trim Loss is Mostly ",
                                "Less than 2.0 in."))

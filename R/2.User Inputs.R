@@ -22,9 +22,7 @@ projscenario <- "VMI-98-8-150-500v3"  # Fix the 21pt. 37
 #projscenario <- "NoEurope95"
 #mYear <- "2015"
 
-mYear <- "2016"
-start_date <- as.Date(paste(mYear, "01", "01", sep = "-"))
-end_date <- as.Date(paste(mYear, "12", "31", sep = "-"))
+mYear <- "2017.5"
 
 # Safety Factor (95% service level = 1.65)
 if (str_sub(projscenario, 1, 3) %in% c("Bev", "VMI")) {
@@ -44,7 +42,7 @@ cost_of_funds <- .08
 prod_cost <- 500
 
 # The opportunity cost of a ton not selling what is now going to trim
-trim_opty_cost <- 150
+trim_cost <- 150
 #trim_opty_cost <- 140
 
 #  Set the aggregation period for the demand analysis [daily, weekly, monthly]
@@ -80,6 +78,9 @@ facility_list <- c("M1", "M2", "W6", "W7")
 fpinput <- file.path(proj_root, "Data")
 
 fpoutput <- file.path(proj_root, "Scenarios", mYear, projscenario)
+if (!file.exists(file.path(proj_root, "Scenarios", mYear))){
+  dir.create(file.path(proj_root, "Scenarios", mYear))
+}
 if (!file.exists(fpoutput)){
   dir.create(fpoutput)
 }
@@ -136,7 +137,7 @@ if (str_sub(projscenario, 1, 7) %in% c("BevOnly", "VMI98")) {
 
 
 #days allowed for simulation to stabilize before metrics are taken 
-stabilizationPeriod <- 60 
+stabilizationPeriod <- 30 
 
 #cycle length
 cycle_length_list <- read.xlsx(cycleLength, sheet = projname)

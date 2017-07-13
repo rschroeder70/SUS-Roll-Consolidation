@@ -22,22 +22,12 @@ if (nrow(plant_codes %>% group_by(Cust) %>%
   stop("Duplicates in the PlantCodes table")
 }
 
-facility_names <- read_csv(file.path(proj_root, "Data", "FacilityNames.csv"))
-# Make sure not duplicate Facility.ID
-if (nrow(facility_names %>% group_by(Facility.ID) %>%
-         mutate(count = n()) %>% 
-         filter(count > 1)) > 0) {
-  stop("Duplicates in the PlantCodes table")
-}
-
 pd <- as_tibble(pd_orig)
 pd <- pd %>%
   select(Ship.to, Sold.to.pt, Description, Batch, MFGPlant, 
          Date = Ac.GI.date, Cal = Cal.lb, Grade, Width = Calc.width, 
          Dia, Machine, Tons = Net.Ton, Grade.Type, I.M)
 
-pd <- pd %>%
-  mutate(Cal = as.character(Cal))
 pd <- pd %>% filter(Grade.Type == "SUS")
 pd <- pd %>% filter(!Grade %in% c("AKJP", "AK25"))
 pd <- pd %>% mutate(Year = year(Date))
@@ -139,6 +129,17 @@ pd %>%
   summarize(Prod.Count = n_distinct(Mill, Grade, Cal, Wind, Width, Dia),
             Plants = n_distinct(Plant))
 
+
+pd16 <- read_csv(paste0("Data/All Shipments No SKU Fix ", "2016", ".csv"))
+pd16$Cal <- as.character(pd16$Cal)
+
+pd16 <- pd16 %>%
+  filter(Date >= "2016-07-01")
+
+pd <- bind_rows(pd16, pd)
+
 # Save as a csv at this point - prior to diameter consolidation
 write_csv(pd, 
           paste0("Data/All Shipments No SKU Fix-", "2017.5", ".csv"))
+
+rm(pd, pd16, pd_orig)

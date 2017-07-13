@@ -56,7 +56,7 @@ read_results <- function(results_type, mYear, projscenario) {
              Sim.Parent.Qty.Fill.Rate, Parent.dclass, 
              Prod.Width, Prod.DMD.Tons, Prod.Trim.Width, Prod.Trim.Fact,
              Prod.Trim.Tons, Prod.Gross.Tons, Prod.DMD.Count,
-             Parent.Distrib, Parent.OTL, cycle_dbr)
+             Parent.Distrib, Parent.OTL, Parent.DBR)
     
     df <- df %>%
       mutate(Prod.Trim.Width = round(Prod.Trim.Width, 4))
