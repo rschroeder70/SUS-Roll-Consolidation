@@ -5,7 +5,7 @@
 # Fix a bunch of stuff and save as a csv with just the data
 #  as All Shipments No SKU Fix 
 
-pd_orig <- read.xlsx("Data/2017 first half Shipments for Dylan.xlsx", 
+pd_orig <- read.xlsx("Data/2017.5 Shipments for Dylan.xlsx", 
                 "Shipment data", colNames = TRUE,
                 detectDates = TRUE, check.names = TRUE)
 
@@ -55,6 +55,9 @@ pd <- pd %>%
 pd <- left_join(pd, plant_codes,
                         by = c("Ship.to" = "Cust"))
 
+# Exclude the R&D sold-to
+pd <- pd %>% filter(Sold.to.pt != "5538")
+
 # Exclude the R&D in West Monroe and mills
 pd <- pd %>%
   filter(!(SAP.Code %in% c("5538", "5539", "PLT00031", "PLT00033", "PLT00040")))
@@ -77,8 +80,7 @@ pd %>% filter(SAP.Code != SAP.Sold.To) %>%
   summarize(Tons = sum(Tons))
 
 # Update the SAP.Code to the sold where they are not equal (and where the
-# SAP.Sold.To is not NA).  This fixes a
-# Portland issue, too.
+# SAP.Sold.To is not NA).  This fixes a Portland issue, too.
 pd <- pd %>%
   mutate(SAP.Code = ifelse(!is.na(SAP.Sold.To) & (SAP.Code != SAP.Sold.To), 
                            SAP.Sold.To, SAP.Code))

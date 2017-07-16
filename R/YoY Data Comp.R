@@ -258,8 +258,7 @@ if (!exists("dies")) source(file.path(proj_root, "R",
                                       "Read Consumption by Die.R"))
 rd_comb <- 
   left_join(rd_comb, dies,
-            by = c("Year" = "Year",
-                   "Grade" = "Grade",
+            by = c("Grade" = "Grade",
                    "Caliper" = "Board.Caliper",
                    "Dia" = "Dia",
                    "Wind" = "Wind",
@@ -326,8 +325,7 @@ rd_16_not_15 <- left_join(rd_16_not_15,
 
 # Pull in the die information by plant
 rd_2015_dies <- left_join(rd_2015, dies_plants,
-                          by = c("Year" = "Year", 
-                                 "Plant" = "Plant",
+                          by = c("Plant" = "Plant",
                                  "Grade" = "Grade",
                                  "Caliper" = "Board.Caliper",
                                  "Dia" = "Dia",
@@ -335,8 +333,7 @@ rd_2015_dies <- left_join(rd_2015, dies_plants,
                                  "Width" = "Board.Width"))
 
 rd_2016_dies <- left_join(rd_2016, dies_plants,
-                          by = c("Year" = "Year", 
-                                 "Plant" = "Plant",
+                          by = c("Plant" = "Plant",
                                  "Grade" = "Grade",
                                  "Caliper" = "Board.Caliper",
                                  "Dia" = "Dia",
@@ -344,8 +341,7 @@ rd_2016_dies <- left_join(rd_2016, dies_plants,
                                  "Width" = "Board.Width"))
 
 rd_16_not_15_die <- left_join(rd_16_not_15, rd_2016_dies,
-                              by = c("Year" = "Year",
-                                     "Mill" = "Mill",
+                              by = c("Mill" = "Mill",
                                      "Plant" = "Plant",
                                      "Grade" = "Grade",
                                      "CalDW" = "CalDW",

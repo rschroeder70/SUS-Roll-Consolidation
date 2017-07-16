@@ -111,91 +111,21 @@ if (projscenario == "Europe") {
 }
 
 # Read the Die/Sheet info
-opt_files <- file.path("G:", "000_Supply Chain", "_Optimization", 
-                       "Model Optimization", "Projects", "2017 Projects",
-                       "Roll Width Consolidation")
+#opt_files <- file.path("G:", "000_Supply Chain", "_Optimization", 
+#                       "Model Optimization", "Projects", "2017 Projects",
+#                       "Roll Width Consolidation")
 
-die_sheet <- read.xlsx(file.path(opt_files, 
-                                 "Board Consumption - 2016 All Sites.xlsx"),
-                       startRow = 3)
-# This comes from the Read Consumption by Die.R script
+#die_sheet <- read.xlsx(file.path(opt_files, 
+#                                 "Board Consumption - 2016 All Sites.xlsx"),
+#                       startRow = 3)
+
+# The cons dataframe comes from the Read Consumption by Die.R script
 die_sheet <- cons
-
-# QlikView Consumption by Die Report on the Consumption tab on the 
-#   Fiber Analysis report.  See the SUSConsumption Bookmark
-#fpinput <- "Data"
-#die_roll <- read.xlsx(file.path(fpinput, "QV SUS Roll Consumption 2015-2017.xlsx"))
-
-# Just keep the SUS rows
-#die_sheet <- die_sheet %>%
-#  filter(Board.Type.Group == "SUS")
-
-#die_sheet <- die_sheet %>%
-#  select(-Die) %>%
-#  mutate(Die = Die.Fix)
-
-#die_sheet$TON <- round(die_sheet$TON, 1)
-
-# Need to get the full grade out of the Material.Description field for the "AK"
-# records.  If OM or PK, just add "XX".  OTherwise use the Short field
-#die_sheet <- die_sheet %>%
-#  mutate(Grade = ifelse(
-#    Board.Type.Short %in% c("PK", "OM"),
-#    paste(Board.Type.Short, "XX", sep = ""),
-#    ifelse(
-#      Board.Type.Short == "AK",
-#      ifelse(
-#        str_sub(Material.Description, 1, 1) == "I",
-#       str_sub(Material.Description, 5, 8),   # Imperial
-#        str_sub(Material.Description, 6, 9)    # Metric
-#      ), Board.Type.Short)
-#  ))
-
-#die_sheet$Board.Caliper <- as.character(die_sheet$Board.Caliper)
-
-#die_sheet <- die_sheet %>%
-#  mutate(Caliper = ifelse(Board.Caliper == "0",
-#                          ifelse(str_sub(Material.Description, 1, 1) == "I",
-#                                 str_sub(Material.Description, 3, 4),
-#                                 str_sub(Material.Description, 4, 5)),
-#                          Board.Caliper))
-
 
 die_sheet <- die_sheet %>%
   rename(Width = Board.Width, Caliper = Board.Caliper)
-#           ifelse(Board.Width == "0",
-#                  ifelse(str_sub(Material.Description, 1, 1) == "I",
-#                         as.numeric(str_sub(Material.Description, 10, 17)),
-#                         as.numeric(str_sub(Material.Description, 11, 14))),
-#                  Board.Width))
-
-#die_sheet <- die_sheet %>%
-#  mutate(Dia = 
-#           ifelse(Board.Type.Group == "SUS", 
-#                  ifelse(str_sub(Material.Description, 1, 1) %in% c("I", "("),
-#                         str_sub(Material.Description, -7, -5),
-#                         str_sub(Material.Description, -10, -6)), ""))
 
 die_sheet$Width <- as.numeric(die_sheet$Width)
-#die_sheet$Year <- as.character(die_sheet$Year)
-
-#die_sheet <- die_sheet %>%
-#  mutate(Grade = ifelse(Grade == "SUSFC02", "FC02", Grade))
-
-
-#die_sheet <- die_sheet %>%
-#  mutate(Wind = 
-#           str_sub(Material.Description, str_length(Material.Description), -1))
-
-#die_sheet <- die_sheet %>%
-#  mutate(Plant = paste("PLT0", Plant, sep = ""))
-
-#die_sheet <- die_sheet %>%
-#  group_by(Year, Plant, PlantName, Board.Type.Group, MRPC2.Text, Die, 
-#           `Sheet./.Web`, Die.Description, Width, Grade, Caliper,
-#           Dia, Wind) %>%
-#  summarize(TON = sum(TON)) %>%
-#  ungroup()
 
 # Create separate tons columns for each diameter
 die_sheet <- die_sheet %>%
@@ -262,7 +192,7 @@ opt_detail_plants_die <- opt_detail_plants_die %>%
 # Clear the data for duplicate rows where the Die.Index > 1
 opt_detail_plants_die[opt_detail_plants_die$Die.Index > 1, 6:20] <- ""
 
-# Make these numeric so we can format them as numers
+# Make these numeric so we can format them as numbers
 opt_detail_plants_die <- opt_detail_plants_die %>%
   mutate(`Board Tons` =  as.numeric(`Board Tons`),
          `Trim Tons` = as.numeric(`Trim Tons`),

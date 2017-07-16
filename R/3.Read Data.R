@@ -55,10 +55,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   
   tons_check <- TRUE
   
-  if(tons_check) rawDataAll %>% filter(Width.Orig %in% 
-                                         c(62.875, 64.0625, 64.25) & 
-                                         Grade.Orig == "AKPG") %>%
-    group_by(Mill.Orig, Cal.Orig, Width.Orig) %>%
+  if(tons_check) rawDataAll %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   # Note that the sequence of operations here is important as the 
@@ -128,10 +127,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   # Check where the mill is now different
   rawDataAll %>% filter(Mill.Orig != Mill.Fix)
   
-  if(tons_check) rawDataAll %>% filter(Width.Fix %in% 
-                                         c(62.875, 64.0625, 64.25) & 
-                                         Grade.Fix == "AKPG") %>%
-    group_by(Mill.Fix, Grade.Fix, Cal.Fix, Width.Fix) %>%
+  if(tons_check) rawDataAll %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   # For PLT00070, convert all AKPG 21 pt 62.875 to 24 pt 64.25 
@@ -142,8 +140,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   dt[(Grade.Fix == "AKPG" & Plant == "PLT00070" & Cal.Fix == "21" & Width.Fix == 64.0625), 
      `:=` (Cal.Fix = "24", Width.Fix = 62.875)]
   
-  if(tons_check) dt %>% filter(Width.Fix %in% c(62.875, 64.0625, 64.25) & Grade.Fix == "AKPG") %>%
-    group_by(Mill.Fix, Grade.Fix, Cal.Fix, Dia.Fix, Width.Fix) %>%
+  if(tons_check) dt %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   
@@ -169,51 +168,53 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   # Change the wind on the SNEEK grades to "W"
   dt[Grade.Fix == "OMSN", Wind.Fix := "W"]
   
-  # Make the 2015 AKPG M1 18-72-F 37.875 into 18-77-F to match 2016
-  dt[(Grade.Fix == "AKOS" & Mill.Fix == "M1" & Cal.Fix == "18" & Dia.Fix == 72 & 
-        Width.Fix == 37.875 & Year == "2015" & Wind.Fix == "F"), 
-     `:=` (Dia.Fix = 77)]
-  
-  # Make the 38.125 wide AKPG 21 pt. that are 81 OD equal to 84
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 81 & 
-        Width.Fix == 38.125 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 84)]
-  
-  # Others that I found just looking at the data....
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 84 & 
-        Width.Fix == 42.5 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 77)]
-  
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 77 & 
-        Width.Fix == 56.25 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 84)]
-  
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "18" & Dia.Fix == 77 & 
-        Width.Fix == 45.25 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 81)]
-  
-  dt[(Grade.Fix == "AKOS" & Mill.Fix == "W7" & Cal.Fix == "24" & Dia.Fix == 72 & 
-        Width.Fix == 39.5669 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Mill.Fix = "W6", Grade.Fix = "AKHS")]
-  
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "24" & Dia.Fix == 81 & 
-        Width.Fix == 31 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 84)]
-  
-  dt[(Grade.Fix == "AKOS" & Mill.Fix == "W6" & Cal.Fix == "24" & Dia.Fix == 72 & 
-        Width.Fix == 42.875 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 77)]
-  
-  dt[(Grade.Fix == "AKPG" & Mill.Fix == "M2" & Cal.Fix == "18" & Dia.Fix == 72 & 
-        Width.Fix == 45.25 & Year == "2015" & Wind.Fix == "W"), 
-     `:=` (Dia.Fix = 81)]
+  if (mYear == "2015") {
+    # Make the 2015 AKPG M1 18-72-F 37.875 into 18-77-F to match 2016
+    dt[(Grade.Fix == "AKOS" & Mill.Fix == "M1" & Cal.Fix == "18" & Dia.Fix == 72 & 
+          Width.Fix == 37.875 & Wind.Fix == "F"), 
+       `:=` (Dia.Fix = 77)]
+    
+    # Make the 38.125 wide AKPG 21 pt. that are 81 OD equal to 84
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 81 & 
+          Width.Fix == 38.125 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 84)]
+    
+    # Others that I found just looking at the data....
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 84 & 
+          Width.Fix == 42.5 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 77)]
+    
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "21" & Dia.Fix == 77 & 
+          Width.Fix == 56.25 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 84)]
+    
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "18" & Dia.Fix == 77 & 
+          Width.Fix == 45.25 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 81)]
+    
+    dt[(Grade.Fix == "AKOS" & Mill.Fix == "W7" & Cal.Fix == "24" & Dia.Fix == 72 & 
+          Width.Fix == 39.5669 & Wind.Fix == "W"), 
+       `:=` (Mill.Fix = "W6", Grade.Fix = "AKHS")]
+    
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "W6" & Cal.Fix == "24" & Dia.Fix == 81 & 
+          Width.Fix == 31 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 84)]
+    
+    dt[(Grade.Fix == "AKOS" & Mill.Fix == "W6" & Cal.Fix == "24" & Dia.Fix == 72 & 
+          Width.Fix == 42.875 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 77)]
+    
+    dt[(Grade.Fix == "AKPG" & Mill.Fix == "M2" & Cal.Fix == "18" & Dia.Fix == 72 & 
+          Width.Fix == 45.25 & Wind.Fix == "W"), 
+       `:=` (Dia.Fix = 81)]
+  }
   
   rawDataAll <- as_data_frame(dt)
   rm(dt)
   
-  if(tons_check) rawDataAll %>% 
-    filter(Width.Fix %in% c(62.875, 64.0625, 64.25) & Grade.Fix == "AKPG") %>%
-    group_by(Mill.Fix, Cal.Fix, Dia.Fix, Width.Fix) %>%
+  if(tons_check) rawDataAll %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   
@@ -392,8 +393,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   rm(skus_to_fix)
   
   
-  if(tons_check) rawDataAll %>% filter(Width.Fix %in% c(62.875, 64.0625, 64.25) & Grade.Fix == "AKPG") %>%
-    group_by(Mill.Fix, Cal.Fix, Width.Fix) %>%
+  if(tons_check) rawDataAll %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   
@@ -463,8 +465,9 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
     ungroup()
   
   
-  if(tons_check) rawDataAll %>% filter(Width.Fix %in% c(62.875, 64.0625, 64.25) & Grade.Fix == "AKPG") %>%
-    group_by(Mill.Fix, Cal.Fix, Width.Fix) %>%
+  if(tons_check) rawDataAll %>% filter(Width.Orig == 42.5 & Cal.Orig == "21") %>%
+    group_by(Mill.Orig, Cal.Orig, Width.Orig, Dia.Orig, Plant,
+             Dia.Fix) %>%
     summarize(Tons = sum(Tons))
   
   
@@ -505,7 +508,7 @@ start_date <- min(rawDataAll$Date)
 end_date <- max(rawDataAll$Date)
 
 # Check the tons and # of SKUs
-rawDataAll %>% group_by(Year) %>%
+rawDataAll %>% 
   unite(MGC, Mill, Grade, CalDW, Width) %>%
   summarize(Tons = round(sum(Tons), 0),
             SKU.Count = n_distinct(MGC))
@@ -626,7 +629,7 @@ if (str_sub(projscenario, 1, 7) == "BevOnly") {
   rawDataAll <- 
     semi_join(rawDataAll, 
               filter(rd_comb, CPD.Web | CPD.Sheet),
-              by = c("Year", "Mill", "Grade", "CalDW", "Width"))
+              by = c("Mill", "Grade", "CalDW", "Width"))
   
   # Exclude the shipments going to Perry and West Monroe
   rawDataAll <- rawDataAll %>%

@@ -36,7 +36,7 @@ if (!exists("proj_root")) proj_root <- file.path("C:", "Users", "SchroedR", "Doc
                        "Projects", "SUS Roll Consolidation") 
 
 if (!exists("projscenario")) projscenario <- "CPDOnly95"
-mYear <- "2016"
+mYear <- "2017.5"
 
 if (!exists("opt_detail")) source(file.path(proj_root, "R",
                                             "7.1 Opt SOlution Post Process.R"))
@@ -437,8 +437,8 @@ cpd_pilot_prods <- semi_join(opt_detail, cpd_pilot_parents,
 #  This comes from 7.1
 cpd_pilot_sim_base <- semi_join(sim_base, cpd_pilot_prods, 
                    by = c("Fac", "Grade", "CalDW", 
-                          "Parent_Width" = "Prod.Width")) %>%
-  separate(CalDW, c("temp", "Dia", "Wind"), sep = "-")
+                          "Parent_Width" = "Prod.Width")) 
+#  separate(CalDW, c("temp", "Dia", "Wind"), sep = "-")
 
 all_pilot_prods <- cpd_pilot_sim_base %>% 
   summarize(Sub.Rolls = n(),

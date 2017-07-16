@@ -21,7 +21,7 @@ source("R/2.User Inputs.R")
 print(projscenario)
 print(service_level)
 print(cost_of_funds)
-print(trim_opty_cost)
+print(trim_cost)
 print(prod_cost)
 source("R/3.Read Data.R")
 #ifac <- "W6"  # for testing

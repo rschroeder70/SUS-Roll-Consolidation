@@ -25,12 +25,14 @@ if (!exists(proj_root)) proj_root <-
 
 # sr_inv - sus roll inventory
 sr_inv <- read.xlsx(file.path(proj_root,"Data",
-                    "QV SUS Roll Inv Mnth Trend Det 2015 2016.xlsx"),
+                    "QV SUS Roll Inv Mnth Trend Det 2016 2017.xlsx"),
                            detectDates = T)
 
-# Just 2016 data
+sr_inv$Date <- as.Date(sr_inv$Date, "%m/%d/%Y")
+
+# Just 12 months of data
 sr_inv <- sr_inv %>%
-  dplyr::filter(between(Date, as.Date("2016-01-01"), as.Date("2016-12-31")))
+  filter(between(Date, as.Date("2016-07-01"), as.Date("2017-06-30")))
 
 sr_inv %>% dplyr::filter(Date == as.Date("2016-12-31")) %>%
   summarize(Inv.Tons = sum(Qty.in.TON))
@@ -261,3 +263,37 @@ sr_inv_fy <- sr_inv_me %>%
   #mutate(Prod.Type = gsub("\\.", " ", Prod.Type))
 
 copy.table(sr_inv_fy)
+
+#Beverage Items to eliminate
+elim <- 
+  tribble( 
+    ~Caliper, ~Grade, ~Width.e, ~Width.p,
+    #-----------------------
+    "18", "AKPG", 29.5, 31.125,
+    "18", "AKPG", 30.125, 31.125,
+    "18", "AKPG", 44.125, 45.25,
+    "21", "AKPG", 45.5, 46,
+    "24", "AKPG", 36.75, 37.75,
+    "24", "AKPG", 41.875, 42.25,
+    "24", "AKPG", 42.125, 42.25,
+    "24", "AKPG", 42.875, 43.125,
+    "24", "AKPG", 44.875, 46.625,
+    "24", "AKPG", 47.5, 47.625,
+    "24", "AKPG", 52.875, 54.5,
+    "27", "AKPG", 40.875, 42.375,
+    "27", "AKPG", 45.75, 47.125,
+    "27", "AKPG", 46.625, 47.125,
+    "28", "PKXX", 37.875, 38.625)
+
+sr.inv <- sr_inv %>%
+  group_by(Date, Grade, Caliper, Width) %>%
+  summarize(Tons = sum(Inv.Tons))
+
+sr.inv.elim <- 
+  semi_join(sr.inv, elim,
+            by = c("Grade", "Caliper", "Width" = "Width.e"))
+
+# Average for all Items
+sr.inv.elim %>% group_by(Date) %>%
+  summarize(Tons = sum(Tons)) %>%
+  summarize(Tons = mean(Tons))
