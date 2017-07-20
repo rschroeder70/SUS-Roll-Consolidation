@@ -24,7 +24,7 @@ print(cost_of_funds)
 print(trim_cost)
 print(prod_cost)
 source("R/3.Read Data.R")
-#ifac <- "W6"  # for testing
+#ifac <- "M1"  # for testing
 for (ifac in facility_list) {
   # Just get this mill/plant for the current iteration.  
   if (projtype == "Mill") {
@@ -35,7 +35,8 @@ for (ifac in facility_list) {
       filter(Plant == ifac)
   }
   #rawData <- filter(rawData, Grade == "AKPG" & CalDW == "21-84-W") 
-  #rawData <- filter(rawData, Width == 37)
+  #rawData <- filter(rawData, Grade == "OMXX" & CalDW == "15-72-F") 
+  #rawData <- filter(rawData, Width == 28.75)
   source(file.path(basepath, "R", "3.5.Demand Profiler.R"))  
   source(file.path(basepath, "R", "4.Parent Roll Selection.R"))
   source(file.path(basepath, "R", "5.Simulate Parents.R"))

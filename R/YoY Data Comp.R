@@ -25,6 +25,8 @@ rd_2015 <- read_csv(file.path(proj_root, "Data",
                               "All Shipments Fixed 2015.csv"))
 rd_2016 <- read_csv(file.path(proj_root, "Data",
                              "All Shipments Fixed 2016.csv"))
+rd_2017.5 <- read_csv(file.path(proj_root, "Data",
+                                "All Shipments Fixed 2016.csv"))
 # Summarize the tons over the dates.  Do this for the individual files
 # and then combine as we may want to use this annual data for other
 # purposes

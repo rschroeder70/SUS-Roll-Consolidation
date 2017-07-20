@@ -1,7 +1,9 @@
 ################################################################################
 #
 # Read the QlikView daily inventory file.  The data comes from the Inventory
-# cube, and the SUS Rollstock bookmark
+# cube, and the SUS Rollstock bookmark.  Select Daily Trend on the Inventory
+# Overview tab ahd then Daily Trand - Pivot on the Inventory Details tab.  
+# Expand all columns
 #
 library(tidyverse)
 library(openxlsx)
@@ -15,7 +17,7 @@ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors,
                            rownames(qual_col_pals)))
 
 
-sinv <- read.xlsx("Data/QV-daily-inventory.xlsx",
+sinv <- read.xlsx("Data/QV-SUS-board-daily-inventory.xlsx",
                   detectDates = T, 
                   check.names = T)
 
@@ -67,7 +69,7 @@ sinv <- sinv %>%
                       str_sub(Material.Description, 19, 20),
                       str_sub(Material.Description, 16, 19)))
 
-elim <- 
+bev.elim <- 
   tribble( 
     ~Caliper, ~Grade, ~Width.e, ~Width.p,
     #-----------------------
@@ -76,8 +78,8 @@ elim <-
     "18", "AKPG", 44.125, 45.25,
     "21", "AKPG", 45.5, 46,
     "24", "AKPG", 36.75, 37.75,
-    "24", "AKPG", 41.875, 42.25,
-    "24", "AKPG", 42.125, 42.25,
+    #"24", "AKPG", 41.875, 42.25,
+    #"24", "AKPG", 42.125, 42.25,
     "24", "AKPG", 42.875, 43.125,
     "24", "AKPG", 44.875, 46.625,
     "24", "AKPG", 47.5, 47.625,
@@ -87,37 +89,43 @@ elim <-
     "27", "AKPG", 46.625, 47.125,
     "28", "PKXX", 37.875, 38.625)
 
-sinv.elim <-
-  semi_join(sinv, elim,
+sinv.bev.elim <-
+  semi_join(sinv, bev.elim,
             by = c("Caliper", "Grade", "Width" = "Width.e"))
 
-sinv.elim <- sinv.elim %>%
+sinv.bev.elim <- sinv.bev.elim %>%
   group_by(Date, Caliper, Grade, Width) %>%
   summarize(Tons = sum(Tons)) %>%
   ungroup() %>%
   unite(Cal.Gr.W, Caliper, Grade, Width)
 
-ggplot(data = sinv.elim, aes(x = Date)) +
+# Plot the rolls to be eliminated
+ggplot(data = sinv.bev.elim, aes(x = Date)) +
   geom_bar(aes(y = Tons, fill = Cal.Gr.W), stat = "identity") +
   scale_fill_manual(values = (col_vector)) +
   ggtitle("Inventory of Eliminated Beverage VMI Rolls")
 
-sinv.elim %>% group_by(Date) %>%
+sinv.bev.elim %>% group_by(Date) %>%
   summarize(Tons = sum(Tons)) %>%
-  filter(Date == max(Date)-7)
+  filter(Date >=  max(Date)-15)
 
-sinv.parent <- 
+sinv.bev.parent <- 
   semi_join(sinv, elim,
             by = c("Caliper", "Grade", "Width" = "Width.p"))
 
-sinv.parent <- sinv.parent %>%
+# Plot inventory of all Parent rolls
+sinv.bev.parent <- sinv.bev.parent %>%
   group_by(Date, Caliper, Grade, Width) %>%
   summarize(Tons = sum(Tons)) %>%
   ungroup() %>%
   unite(Cal.Gr.W, Caliper, Grade, Width)
 
-ggplot(data = sinv.parent, aes(x = Date)) +
+ggplot(data = sinv.bev.parent, aes(x = Date)) +
   geom_bar(aes(y = Tons, fill = Cal.Gr.W), stat = "identity") +
   scale_fill_manual(values = (col_vector)) +
   ggtitle("Inventory of Parent Beverage VMI Rolls")
+
+sinv.bev.parent %>% group_by(Date) %>%
+  summarize(Tons = sum(Tons)) %>%
+  filter(Date >=  max(Date)-15)
 

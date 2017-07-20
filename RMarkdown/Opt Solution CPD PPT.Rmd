@@ -35,46 +35,29 @@ options("ReporteRs-default-font" = "Veranda",
 if (!exists("proj_root")) proj_root <- file.path("C:", "Users", "SchroedR", "Documents",
                        "Projects", "SUS Roll Consolidation") 
 
-if (!exists("projscenario")) projscenario <- "CPDOnly95"
-mYear <- "2017.5"
+if (!exists("projscenario")) stop("ERROR: projscenario not defined")
+if (!exists("mYear")) stop("ERROR: mYear not defined")
+
+if (str_sub(projscenario, 1, 7) != "CPDOnly") stop("Incorrect Scenario")
 
 if (!exists("opt_detail")) source(file.path(proj_root, "R",
                                             "7.1 Opt SOlution Post Process.R"))
 
-#Summarize SKU counts by product type
-if (!exists("rd_comb")) source(file.path(proj_root, "R", 
-                                         "YoY Data Comp.R"))
-
 # Use the SKUs in the analysis. Give preference to CPD 
 cpd_skus <- opt_detail %>%
-  select(Mill = Fac, CalDW, Width = Prod.Width, Grade, Prod.CPD.Web, 
-         Prod.CPD.Sheet, Prod.Bev.VMI, Prod.CPD.VMI,
-         Prod.Eur, Prod.Common.SKU, Tons = Prod.DMD.Tons) %>%
-  mutate(Prod.Type = case_when(.$Prod.CPD.Web ~ "CPD.Web",
-                               .$Prod.CPD.Sheet ~ "CPD.Sheet",
-                               .$Prod.Bev.VMI ~ "Bev.VMI",
-                               .$Prod.CPD.VMI ~ "CPD.VMI",
-                               .$Prod.Eur ~ "Europe",
-                               TRUE ~ "Other???"))
+  select(Mill = Fac, CalDW, Width = Prod.Width, Grade, Tons = Prod.DMD.Tons,
+         Prod.Type)
 
 sku_summary <- cpd_skus %>%
   rename(`Prod Type` = Prod.Type) %>%
   mutate(`Prod Type` = sub("\\.", " ", `Prod Type`)) %>%
   group_by(`Prod Type`) %>%
-  summarize(`2016 Tons` = round(sum(Tons), 0),
-            `SKU Count` = n(),
-            #`Die Count` = sum(Nbr.Dies, na.rm = TRUE),
-            `Repeat Tons from 2015` = 
-              round(sum(ifelse(Prod.Common.SKU, Tons, 0), na.rm = TRUE), 0),
-            `Repeat SKUs from 2015` = 
-              n_distinct(ifelse(Prod.Common.SKU, Tons, 0)))
+  summarize(`Tons` = round(sum(Tons), 0),
+            `SKU Count` = n())
 
 sku_totals <- sku_summary %>%
-  summarize(`2016 Tons` = sum(`2016 Tons`),
-            `SKU Count` = sum(`SKU Count`),
-            #`Die Count` = sum(`Die Count`),
-            `Repeat Tons from 2015` = sum(`Repeat Tons from 2015`),
-            `Repeat SKUs from 2015` = sum(`Repeat SKUs from 2015`)) %>%
+  summarize(`Tons` = sum(`Tons`),
+            `SKU Count` = sum(`SKU Count`)) %>%
   mutate(`Prod Type` = "Total")
 
 sku_summary <- bind_rows(sku_summary, sku_totals)
@@ -92,13 +75,8 @@ sku_summary$`Prod Type` <-
 #                                       border.bottom.width = 2)
 my_f_table <- 
   FlexTable(data = sku_summary %>%
-              mutate(`2016 Tons` = comma(`2016 Tons`),
-                     `SKU Count` = comma(`SKU Count`),
-                     #`Die Count` = comma(`Die Count`),
-                     `Repeat Tons from 2015` = 
-                       comma(`Repeat Tons from 2015`),
-                     `Repeat SKUs from 2015` = 
-                       comma(`Repeat SKUs from 2015`)),
+              mutate(`Tons` = comma(`Tons`),
+                     `SKU Count` = comma(`SKU Count`)),
             header.cell.props = 
               cellProperties(vertical.align = "middle",
                              background.color = "#81BC41",
@@ -126,11 +104,8 @@ my_f_table[nrow(sku_summary), ] <- textProperties(font.family = "Veranda",
 my_f_table[, 1] <- parProperties(text.align = "left")
 #my_f_table[1, 1] <- "Some Long Lines of Text"
 my_f_table <- setFlexTableWidths(my_f_table, 
-                                 widths = c(2, rep(0.8, 2), rep(1, 2)))
+                                 widths = c(2, rep(0.8, 2)))
 print(my_f_table)
-
-# Put the widths into categories
-#cpd_skus$cWidth <- cut(cpd_skus$Width, seq(0, max(cpd_skus$Width), .125))
 
 tons_by_width <- ggplot(data = cpd_skus, 
        aes(x = Width, y = Tons)) +
@@ -426,7 +401,7 @@ rm(cpd_sim_base, all_parents, all_prods, f_table2, my_order, option_list, option
 cpd_pilot_parents <- opt_parents %>%
   #filter(Parent.Type == "CPD.Web") %>%
   arrange(desc(Parent.DMD)) %>%
-  top_n(30, Parent.DMD)
+  top_n(50, Parent.DMD)
 
 
 cpd_pilot_prods <- semi_join(opt_detail, cpd_pilot_parents,
@@ -680,6 +655,7 @@ opt_new_post <- opt_new %>%
   ungroup() %>%
   distinct()
 
+
 opt_new_post <- opt_new_post %>%
   select(Caliper = Cal, Grade, Mill, Dia, Wind,
          `Parent Roll Width`, `Total Parent Tons`, 
@@ -696,45 +672,47 @@ top_line_style <- createStyle(borderStyle = "medium",
 
 wb <- loadWorkbook(file.path(proj_root, paste0(projscenario, mYear, 
                                "ParentSummary.xlsx")))
-if (!("Pilot Products 2016" %in% names(wb))) {
-  addWorksheet(wb, "Pilot Products 2016")
+new.sheet <- paste0("Pilot Products ", mYear)
+
+if (!(new.sheet %in% names(wb))) {
+  addWorksheet(wb, new.sheet)
 } else {
-  removeWorksheet(wb, "Pilot Products 2016")
-  addWorksheet(wb, "Pilot Products 2016")
+  removeWorksheet(wb, new.sheet)
+  addWorksheet(wb, new.sheet)
 }
 
-writeData(wb, "Pilot Products 2016", opt_new_pre,
+writeData(wb, new.sheet, opt_new_pre,
           startCol = 1, startRow = 2,
           withFilter = TRUE)
 
 # White text for duplicate Parent Roll Widths.  The trick is to select 
 # rows after the header row (3), and to inlucde the header row in the
 # formula (2 == 3).
-conditionalFormatting(wb, "Pilot Products 2016", cols = 9, 
+conditionalFormatting(wb, new.sheet, cols = 9, 
                       rows = 3:(nrow(opt_new_pre) + 2),
                       rule = "I2 == I3", style = wh_text_style)
 # Same for total parent tolc
-conditionalFormatting(wb, "Pilot Products 2016", cols = 12:14, 
+conditionalFormatting(wb, new.sheet, cols = 12:14, 
                       rows = 3:(nrow(opt_new_pre) + 2),
                       rule = "L2 == L3", style = wh_text_style)
-conditionalFormatting(wb, "Pilot Products 2016", cols = 9:14, 
+conditionalFormatting(wb, new.sheet, cols = 1:14, 
                       rows = 3:(nrow(opt_new_pre) + 2),
                       rule = "$I2 != $I3", style = top_line_style)
 
 
-addStyle(wb, "Pilot Products 2016", nbrStyle,
+addStyle(wb, new.sheet, nbrStyle,
         rows = 1:nbr_rows + 2, cols = c(7, 11, 12),
         gridExpand = TRUE, stack = TRUE)
 
-setColWidths(wb, "Pilot Products 2016", cols = 8, widths = "auto")
+setColWidths(wb, new.sheet, cols = 8, widths = "auto")
 
-addStyle(wb, "Pilot Products 2016", rows = 2, cols = c(6, 9:14),
+addStyle(wb, new.sheet, rows = 2, cols = c(6, 9:14),
          createStyle(wrapText = TRUE), gridExpand = TRUE,
          stack = TRUE)
-addStyle(wb, "Pilot Products 2016", rows = 3:(nrow(opt_new_post) + 2),
+addStyle(wb, new.sheet, rows = 3:(nrow(opt_new_post) + 2),
          cols = 14, createStyle(halign = "right"), stack = TRUE)
 
-freezePane(wb, "Pilot Products 2016", firstActiveRow = 3)
+freezePane(wb, new.sheet, firstActiveRow = 3)
 
 if (!("Pilot Parents" %in% names(wb))) {
   addWorksheet(wb, "Pilot Parents")
@@ -796,7 +774,7 @@ f_table5 <- FlexTable(data = opt_new_post,
 f_table5 <- setZebraStyle(f_table5, odd = "#D8E7CF", even = "#EDF4E8")
 f_table5 <- setFlexTableWidths(f_table5, 
                                widths = c(rep(0.5, 5), rep(0.7, 2), 
-                                          4.5, .6)) 
+                                          4.5, .6, .6, .6)) 
 f_table5[1:f_table5$numrow, 1:6] <- parProperties(text.align = "center")
 f_table5[1:f_table5$numrow, 8] <- parProperties(text.align = "left")
 
@@ -811,7 +789,7 @@ writeDoc (mydoc, ppt_file)
 
 # Clean up
 rm(opt_new, cpd_opt_detail_plants, opt_new_pre, opt_new_post, f_table5,
-   nbrStyle, wh_text_style)
+   nbrStyle, wh_text_style, new.sheet)
   
 ```
 
@@ -1070,24 +1048,16 @@ rm(gtrim, g_opt_detail)
 # Build a summary roll list to compare back to the original
 # This gets messy withall the intermediate tables, but it seems
 # to work.  Could probably be done in fewer steps
-#vmi_rolls <- read.xlsx(file.path(proj_root, "Data", "VMI List.xlsx"),
-#                       startRow = 2, cols = c(1:6)) %>%
-#  mutate(Caliper = as.character(Caliper))
-
-#vmi_rolls[is.na(vmi_rolls)] <- ""
 
 roll_types <- opt_detail %>%
-  select(Grade, Caliper, Dia, Prod.Width, Wind, Prod.CPD.Web,
-         Prod.CPD.Sheet) %>%
-  mutate(Prod.Type = ifelse(Prod.CPD.Web, "CPD.Web", "CPD.Sheet")) %>%
+  select(Grade, Caliper, Dia, Prod.Width, Wind, Prod.Type) %>%
   distinct()
 
 # Aggregate for each Plant & Mill
 opt_new <- opt_detail_plants %>%
   select(Mill, Plant.Abrev, Caliper, Grade, Prod.Width, Parent.Width, 
          Dia, Wind, 
-           Prod.Trim.Width, Tons, Prod.Trim.Plant.Tons, Prod.CPD.Web, 
-         Prod.CPD.Sheet) %>%
+           Prod.Trim.Width, Tons, Prod.Trim.Plant.Tons) %>%
   rename(Trim.Width = Prod.Trim.Width) %>%
   ungroup()
 
@@ -1163,7 +1133,7 @@ copy.table(opt_new)
 
 wb <- loadWorkbook(file.path(proj_root, paste0(projscenario, mYear, 
                                "ParentSummary.xlsx")))
-if (!("VMI List" %in% names(wb))) {
+if (!("Parent List" %in% names(wb))) {
   addWorksheet(wb, "Parent List")
 } else {
   removeWorksheet(wb, "Parent List")

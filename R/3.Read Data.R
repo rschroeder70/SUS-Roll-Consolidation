@@ -21,7 +21,7 @@ facility_names <- read_csv(file.path(proj_root, "Data", "FacilityNames.csv"))
 if (nrow(facility_names %>% group_by(Facility.ID) %>%
          mutate(count = n()) %>% 
          filter(count > 1)) > 0) {
-  stop("Duplicates in the PlantCodes table")
+  stop("Duplicates in the FacilityNames table")
 }
 
 if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-", 
@@ -473,9 +473,11 @@ if(file.exists(file.path(proj_root, "Data", paste0("all-shipments-fixed-",
   
   # What has changed
   rawDataAllFixes <- rawDataAll %>%
-    filter(Mill.Orig != Mill.Fix | Grade.Orig != Grade.Fix | Cal.Orig != Cal.Fix |
+    filter(Mill.Orig != Mill.Fix | Grade.Orig != Grade.Fix | 
+             Cal.Orig != Cal.Fix |
              Dia.Orig != Dia.Fix | Wind.Orig != Wind.Fix)
   
+  # Save all the fixes to a file
   write_csv(rawDataAllFixes,
             paste0("Data/shipment-fixes-", mYear, ".csv", sep  = ""))
   
@@ -513,6 +515,113 @@ rawDataAll %>%
   summarize(Tons = round(sum(Tons), 0),
             SKU.Count = n_distinct(MGC))
 
+# Assign a type to each product.  The logic will vary by project
+# First expand the CalDW field
+rawDataAll <- rawDataAll %>%
+  separate(CalDW, c("Caliper", "Dia", "Wind"), sep = "-", remove = FALSE)
+
+if (projname == "SUS") {
+  # For the SUS work, assign to one of Bev.VMI, CPD.VMI, CPD.Web, CPD.Sheet, 
+  # or Europe.  Start with Bev.VMI sizes
+  # ----- Read the Beverage VMI List
+  vmi_rolls <- read.xlsx(file.path(proj_root, "Data", "VMI List.xlsx"),
+                         startRow = 2, cols = c(1:6))
+  vmi_rolls[is.na(vmi_rolls)] <- ""
+  vmi_rolls <- vmi_rolls %>%
+    filter(Status != "D")
+  vmi_rolls$Caliper <- as.character(vmi_rolls$Caliper)
+  vmi_rolls <- vmi_rolls %>%
+    select(Caliper, Width, Grade)
+  # Make sure no duplicates
+  if (any(duplicated(vmi_rolls))) stop("Duplicates in VMI List")
+  vmi_rolls <- vmi_rolls %>%
+    mutate(Bev.VMI = T)
+  
+  
+  rawDataAll <- left_join(rawDataAll, vmi_rolls,
+                          by = c("Grade", "Caliper", "Width")) %>%
+    mutate(Bev.VMI = ifelse(is.na(Bev.VMI), F, T)) %>%
+    arrange(Grade, Bev.VMI)
+  rm(vmi_rolls)
+  
+  # ----- Identify the Eruope Items
+  rd_eur <- rawDataAll %>%
+    filter(str_sub(Plant, 1, 5) == "PLTEU") %>%
+    distinct(Mill, Grade, CalDW, Width) %>%
+    mutate(Eur = T)
+  
+  rawDataAll <- left_join(rawDataAll, rd_eur,
+                          by = c("Mill", "Grade","CalDW", "Width"))
+  rawDataAll <- rawDataAll %>%
+    mutate(Eur = ifelse(is.na(Eur), F, T))
+  
+  rm(rd_eur)
+  
+  # ----- ID Web Rolls by facility 
+  cpd_web_plants <- facility_names %>%
+    filter(Fac.Type == "CPD Web") %>%
+    select(Facility.ID)
+  rd_cpd_web <- rawDataAll %>%
+    filter(Plant %in% as_vector(cpd_web_plants)) %>%
+    distinct(Mill, Grade, CalDW, Width) %>%
+    mutate(CPD.Web = T)
+  
+  rawDataAll <- left_join(rawDataAll, rd_cpd_web,
+                          by = c("Mill", "Grade", "CalDW", "Width"))
+  rawDataAll <- rawDataAll %>%
+    mutate(CPD.Web = ifelse(is.na(CPD.Web), F, T))
+  rm(cpd_web_plants)
+  
+  # ----- Read Web press consumption for Atlanta
+  # The csv file comes from the QlikView Asset Utilization, Atlanta SUS WEb
+  # bookmark.  Change column 1 to Date.  I've asked to have the actual
+  # grade added to the QlikView report.
+  cpd_web_cons <- 
+    read.xlsx(file.path(proj_root, "Data", 
+                        "QV Asset Util Atlanta SUS Web 2016-2017.xlsx"),
+              detectDates = TRUE,  cols = 1:14)
+  
+  cpd_web_cons <- cpd_web_cons %>%
+    filter(Plant.Name == "Atlanta",
+           Date >= start_date & Date <= end_date)%>%
+    distinct(Board.Caliper, Board.Width) %>%
+    mutate(CPD.Web.Cons = T,
+           Board.Width = as.numeric(Board.Width))
+  
+  # If a web roll was used anywhere, call it a web roll
+  rawDataAll <- left_join(rawDataAll, cpd_web_cons,
+                          by = c("Caliper" = "Board.Caliper",
+                                 "Width" = "Board.Width"))
+  
+  rawDataAll <- rawDataAll %>%
+    mutate(CPD.Web = ifelse(!is.na(CPD.Web.Cons), T, CPD.Web)) %>%
+    select(-CPD.Web.Cons)
+  
+  rm(cpd_web_cons)
+  
+  # ----- CPD VMI (Capri Sun)
+  rawDataAll <- rawDataAll %>%
+    mutate(CPD.VMI = 
+             ifelse(Grade == "FC02" & Caliper == "30" & Width == 45.375,
+                    TRUE, FALSE)) %>%
+    mutate(CPD.Web = ifelse(CPD.VMI, F, CPD.Web))
+  
+  #----- Define the Other category
+  rawDataAll <- rawDataAll %>%
+    mutate(CPD.Sheet = ifelse(Bev.VMI | CPD.Web | Eur | CPD.VMI, F, T))
+  
+  # ----- Finally update the type field
+  rawDataAll <- rawDataAll %>%
+    mutate(Prod.Type = case_when(.$Bev.VMI ~ "Bev.VMI",
+                                 .$CPD.VMI ~ "CPD.VMI",
+                                 .$Eur ~ "Europe",
+                                 .$CPD.Web ~ "CPD.Web",
+                                 TRUE ~ "CPD.Sheet"))
+  
+  rawDataAll <- rawDataAll %>%
+    select(-Bev.VMI, -Eur, -CPD.Web, -CPD.VMI, -CPD.Sheet)
+}
+
 # Determine the return freight from each plant.  
 # This is read in the `User Inputs.R` script, but if not 
 # read it in here
@@ -524,7 +633,7 @@ if (!exists("trim_freight")) {
 }
 trim_freight_plant <- rawDataAll %>%
   group_by(Mill, Plant, Grade, CalDW, Width, Facility.Name) %>%
-  dplyr::summarize(Tons = sum(Tons)) %>%
+  summarize(Tons = sum(Tons)) %>%
   left_join(trim_freight,
             by = c("Mill" = "Mill",
                    "Plant" = "Plant")) %>%
@@ -538,7 +647,7 @@ trim_freight_plant$Cost.Ton[is.na(trim_freight_plant$Cost.Ton)] <- 150
 trim_freight_plant <- trim_freight_plant %>%
   group_by(Mill, Grade, CalDW, Width) %>%
   mutate(Freight.Cost = Tons * Cost.Ton) %>%
-  dplyr::summarize(Trim.Frt.Cost = sum(Tons * Cost.Ton)/sum(Tons))
+  summarize(Trim.Frt.Cost = sum(Tons * Cost.Ton)/sum(Tons))
 trim_freight_plant$Width <- as.character(trim_freight_plant$Width)
 
 # This next if block is where we restrict the data depending
@@ -548,89 +657,26 @@ trim_freight_plant$Width <- as.character(trim_freight_plant$Width)
 # machines (i.e., `BevOnlyW6` so just
 # look at the first part of the scenario description
 if (str_sub(projscenario, 1, 7) == "BevOnly") {
-  #  Pull in VMI list and match to the rolls (not the diameter)
-  vmi_rolls <- read.xlsx("Data/VMI List.xlsx",
-                         startRow = 2, cols = c(1:6))
-  vmi_rolls[is.na(vmi_rolls)] <- ""
-  vmi_rolls <- vmi_rolls %>%
-    filter(Status != "D")
-  vmi_rolls$Caliper <- as.character(vmi_rolls$Caliper)
-  vmi_rolls <- vmi_rolls %>%
-    select(Caliper, Width, Grade)
-  vmi_rolls <- vmi_rolls %>%
-    mutate(VMI = 1)
+  rawDataAll <- rawDataAll %>%
+    filter(Prod.Type == "Bev.VMI")
   
-  rawDataAll <- rawDataAll %>%
-    separate(CalDW, c("Caliper", "Dia", "Wind"), sep = "-",
-             remove = FALSE)
-  rawDataAll <- semi_join(rawDataAll, vmi_rolls,
-                          by = c("Grade" = "Grade",
-                                 "Caliper" = "Caliper",
-                                 "Width" = "Width"))
-  rm (vmi_rolls)
-  rawDataAll <- rawDataAll %>%
-    select(-Caliper, -Dia, -Wind)
-
 } else if (str_sub(projscenario, 1, 3) == "Eur") {
   rawDataAll <- rawDataAll %>%
     filter(str_sub(Plant, 1, 5) == "PLTEU")
+  
 } else if (str_sub(projscenario, 1, 3) == "VMI") {
   # Beverage VMI + Capri Sun
-  #  Pull in VMI list and match to the rolls (not the diameter)
-  vmi_rolls <- read.xlsx("Data/VMI List.xlsx",
-                         startRow = 2, cols = c(1:6))
-  vmi_rolls[is.na(vmi_rolls)] <- ""
-  vmi_rolls <- vmi_rolls %>%
-    filter(Status != "D")
-  vmi_rolls$Caliper <- as.character(vmi_rolls$Caliper)
-  vmi_rolls <- vmi_rolls %>%
-    select(Caliper, Width, Grade)
-  vmi_rolls <- vmi_rolls %>%
-    mutate(VMI = 1)
-  cpd_vmi <- 
-    tribble( ~Caliper, ~Width, ~Grade, ~VMI,
-             #----------------------------
-             "30",      45.375, "FC02", 1)
-             
+  rawDataAll <- rawDataAll %>%
+    filter(Prod.Type %in% c("Bev.VMI", "CPD,VMI"))
 
-  vmi_rolls <- bind_rows(vmi_rolls, cpd_vmi)
-  
-  rawDataAll <- rawDataAll %>%
-    separate(CalDW, c("Caliper", "Dia", "Wind"), sep = "-",
-             remove = FALSE)
-  rawDataAll <- semi_join(rawDataAll, vmi_rolls,
-                          by = c("Grade" = "Grade",
-                                 "Caliper" = "Caliper",
-                                 "Width" = "Width"))
-  rawDataAll <- rawDataAll %>%
-    select(-Caliper, -Dia, -Wind)
-  rm(vmi_rolls, cpd_vmi)
-  
-} else if (projscenario == "Common1463") {
-  # If we don't have the file in memory, read it in
-  if (!exists("rd_common")) {
-    rd_common <- read_csv("Data/RD Common 15 to 16 1463 SKUs.csv")
-  }
-  rawDataAll <- 
-    semi_join(rawDataAll, rd_common,
-              by = c("Mill" = "Mill",
-                     "Grade" = "Grade",
-                     "CalDW" = "CalDW",
-                     "Width" = "Width"))
 } else if (str_sub(projscenario, 1, 8) == "NoEurope") {
   rawDataAll <- rawDataAll %>%
     filter(str_sub(Plant, 1, 5) != "PLTEU")
+
 } else if (str_sub(projscenario, 1, 7) == "CPDOnly") {
-  # Use rd_comb
-  if (!exists("rd_comb")) source(file.path(proj_root, "R", 
-                                           "YoY Data Comp.R"))
-  rd_comb$Year <- as.numeric(rd_comb$Year)
-  
-  rawDataAll <- 
-    semi_join(rawDataAll, 
-              filter(rd_comb, CPD.Web | CPD.Sheet),
-              by = c("Mill", "Grade", "CalDW", "Width"))
-  
+  rawDataAll <- rawDataAll %>% 
+              filter(Prod.Type %in% c("CPD.Web", "CPD.Sheet"))
+
   # Exclude the shipments going to Perry and West Monroe
   rawDataAll <- rawDataAll %>%
     filter(!(Plant %in% c("PLT00070", "PLT00068")))

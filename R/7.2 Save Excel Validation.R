@@ -120,6 +120,7 @@ if (projscenario == "Europe") {
 #                       startRow = 3)
 
 # The cons dataframe comes from the Read Consumption by Die.R script
+if (!exists("cons")) source("R/Read Consumption by Die.R")
 die_sheet <- cons
 
 die_sheet <- die_sheet %>%
@@ -293,6 +294,8 @@ thicklineStyle <- createStyle(borderStyle = "thick",
                               borderColour = "#76933C", border = "Top")
 
 addWorksheet(wb, "Parent Rolls", tabColour = "lightblue")
+# TODO: Delete this Parent.Bev.VMI dummy field
+opt_detail_plants$Parent.Bev.VMI <- ""
 odp_x <- opt_detail_plants %>%
   select(Grade, Caliper, `Parent Width` = Parent.Width, Dia, Wind, Mill,
          `Parent Tons` = Parent.DMD, `Prod Width` = Prod.Width, 

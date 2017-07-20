@@ -56,7 +56,8 @@ pd <- left_join(pd, plant_codes,
                         by = c("Ship.to" = "Cust"))
 
 # Exclude the R&D sold-to
-pd <- pd %>% filter(Sold.to.pt != "5538")
+
+pd <- pd %>% filter(is.na(Sold.to.pt) | Sold.to.pt != "5538")
 
 # Exclude the R&D in West Monroe and mills
 pd <- pd %>%

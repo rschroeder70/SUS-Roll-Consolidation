@@ -16,8 +16,6 @@ projscenario <- "CPDOnly-95-8-150-500v2" # Used for Pilot Roll Selection
 #projscenario <- "VMI-98-8-150-725" # Service, ic, opty, prod cust
 #projscenario <- "VMI-98-8-150-500v2"  # Fix the 24pt. 42.875
 #projscenario <- "VMI-98-8-150-500v3"  # Fix the 21pt. 37
-#projscenario <- "VMI-98-3-380-500"
-#projscenario <- "VMI-98-8-380-500"
 #projscenario <- "Europe-95-8-140-415"
 #projscenario <- "NoEurope95"
 #mYear <- "2015"

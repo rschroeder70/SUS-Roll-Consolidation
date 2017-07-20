@@ -28,12 +28,12 @@ if (!exists("proj_root")) proj_root <-
 if (!exists("basepath")) basepath <- 
   file.path("~","Projects", "RollAssortmentOptimization")
 
-if (!exists("projscenario")) projscenario <- "CPDOnly-95-8-150-500"
-if (!exists("mYear")) mYear <- "2016"
-
 # Load Packages & Functions
-source(file.path(basepath, "R", "0.LoadFunctions.R"))
+source(file.path(basepath, "R", "0.LoadPkgsAndFunctions.R"))
 
+if (!exists("projscenario")) error("Project Scenario Not Defined")
+if (!exists("mYear")) error("mYear Not Defined")
+# 2.User Inputs to load the above variables
 
 ```
 
@@ -113,7 +113,7 @@ rinv <- rinv %>%
 
 # Read and apply the fixes file
 fixes <- read_csv(file.path(proj_root,"Data",
-                            "shipment-fixes-2016.csv"))
+                            paste0("shipment-fixes-", mYear,".csv")))
 
 fixes <- fixes %>%
   select(-c(Date, Tons, I.M, Max.Diam)) %>% distinct()
@@ -150,10 +150,16 @@ rinv <- left_join(rinv, fixes,
 rm(fixes)
 
 # Restrict to just the pilot rolls
-rpilot <- read.xlsx(file.path(proj_root,
-         "CPD-pilot-rolls.xlsx"),
-                    sheet = "Pilot Products 2016", startRow = 2) %>%
-  filter(!is.na(Parent.Selection))
+
+#rpilot <- read.xlsx(file.path(proj_root, "CPD Pilot",
+#         "CPD-pilot-rolls.xlsx"),
+#                    sheet = "Pilot Products 2016", startRow = 2) %>%
+#  filter(!is.na(Parent.Selection))
+
+rpilot <- read.xlsx(file.path(proj_root, 
+            paste0(projscenario, mYear, "ParentSummary.xlsx")),
+            sheet = paste0("Pilot Products ", mYear),
+            startRow = 2)
 
 # We should only have one Mill and Dia for each roll width, but just to be
 # sure...
@@ -215,20 +221,17 @@ ggplot(rinv, aes(x=Date, y = Inv.Tons)) +
 # preferred sizes, and not just used as substitutes
 
 cons <- read.xlsx(file.path(proj_root, "Data", 
-                           "QV SUS Roll Consumption 2015-2017.xlsx"),
+                           "QV SUS Roll Consumption 2016-2017.xlsx"),
                  detectDates = T)
 
 cons <- cons %>%
   mutate(Plant = paste0("PLT0", Plant),
-         Year = as.character(year(MonthYear)),
          Board.Width = as.numeric(Board.Width)) %>%
+  filter(between(MonthYear, start_date, end_date)) %>%
   filter(Board.Width > 0)
 
 cons <- cons %>%
   mutate(M.I = str_sub(Material.Description, 1, 1))
-
-cons <- cons %>%
-  filter(Year %in% c("2016", "2017"))
 
 # Grade
 cons <- cons %>%
@@ -249,7 +252,7 @@ cons <- cons %>%
 
 # Aggregate over the dates
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, 
+  group_by(Plant, PlantName, 
            MRPC2.Text, Die, Die.Description,
            Grade, Board.Caliper, Dia, Wind, Board.Width, M.I,
            Material, Material.Description) %>%
@@ -259,25 +262,25 @@ cons <- cons %>%
 # Calculate the percentage of tons by board width for the dies with 
 #   multiple widths.
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  group_by(Plant, PlantName, Die, Die.Description) %>%
   mutate(Nbr.Widths = n_distinct(Board.Width),
          Die.Tons = sum(Tons),
          Die.Pct = round(100*Tons/Die.Tons, 2)) %>%
   ungroup() %>%
-  arrange(Year, Plant, Die, desc(Board.Width)) 
+  arrange(Plant, Die, desc(Board.Width)) 
 
 
 # Calculate the percentage of tons by board width for the dies with 
 #   multiple widths.  Ignore Grade & Caliper
 cons <- cons %>%
-  group_by(Year, Plant, PlantName, Die, Die.Description) %>%
+  group_by(Plant, PlantName, Die, Die.Description) %>%
   mutate(Nbr.Boards = n_distinct(Board.Width, Grade, Board.Caliper),
          Tons = round(Tons, 0),
          Die.Tons = round(sum(Tons), 0)) %>%
   mutate(Die.Pct = round(100*Tons/Die.Tons, 2)) %>%
   mutate(Nbr.Subs = sum(ifelse(Die.Pct < 5, 1, 0))) %>%
   ungroup() %>%
-  arrange(Year, Plant, Die, desc(Board.Width)) 
+  arrange(Plant, Die, desc(Board.Width)) 
 
 # Assume any boards that made up less than 5% of the die tons were
 #   un-desired substitutes
@@ -290,6 +293,7 @@ cons_pre <- inner_join(cons, select(rpilot, Grade, Caliper, Wind,
                   by = c("Grade", "Board.Caliper" = "Caliper", 
                          "Wind", "Board.Width" = "Roll.Width"))
 
+# Just get the pilot parents
 cons_parent <- semi_join(distinct(cons, Grade, Board.Caliper, Wind,
                                 Board.Width, Dia, Material, 
                                 Material.Description),
@@ -309,22 +313,23 @@ cons_final <- left_join(cons_pre, cons_parent,
 
 cons_final <- cons_final %>%
   select(-M.I) %>%
-  arrange(Year, Plant, Die, desc(Tons))
+  arrange(Plant, Die, desc(Tons))
 
 #cons_final <- cons_final %>%
 #  filter(Parent.Roll.Width != Board.Width)
 
-
+# Rearrange the columns
 cons_final <- cons_final %>% 
-  select(Year, Board.Caliper, Grade, Board.Width, Dia, Wind, Plant, 
+  select(Board.Caliper, Grade, Board.Width, Dia, Wind, Plant, 
          `Plant Name` = PlantName, MRPC2.Text, Die,
          Die.Description, 
          Material, Material.Description, Tons, 
          Die.Tons, Die.Pct, Nbr.Boards, Nbr.Subs, Apparent.Sub,
-         Parent.Width = Parent.Roll.Width, Parent.Material, Parent.Material.Descr)
+         Parent.Width = Parent.Roll.Width,
+         Parent.Material, Parent.Material.Descr)
 
 cons_final <- cons_final %>%
-  arrange(Year, Board.Caliper, Grade, Board.Width, Dia, Wind, Plant,
+  arrange(Board.Caliper, Grade, Board.Width, Dia, Wind, Plant,
           Die, Tons)
 
 cons_final <- cons_final %>%
@@ -340,28 +345,28 @@ copy.table(cons_final)
 ```{r Consumption by Plant Summary}
 
 # First aggregate over the Die
-cons_plt <- cons %>%
-  group_by(Year, Caliper = `Board Caliper`, Grade, Dia, Wind,
-           `Board Width`, `Parent Roll Width`, Plant, `Plant Name`) %>%
+cons_plt <- cons_final %>%
+  group_by(Caliper = `Board Caliper`, Grade, Dia, Wind,
+           `Board Width`, `Parent Width`, Plant, `Plant Name`) %>%
   summarize(Tons = sum(Tons)) %>%
   ungroup()
 
 cons_plt <- cons_plt %>%
   mutate(Plant = paste0(`Plant Name`, " (", comma(round(`Tons`, 0)), ")")) %>%
-  group_by(Year, Caliper, Grade, `Board Width`, Dia, Wind) %>%
+  group_by(Caliper, Grade, `Board Width`, Dia, Wind) %>%
   mutate(Plants = paste0(Plant, collapse = ", ")) %>%
   select(-Plant, -`Plant Name`) %>%
   ungroup() %>%
-  group_by(Year, Caliper, Grade, `Board Width`, Dia, Wind, Plants,
-           `Parent Roll Width`) %>%
+  group_by(Caliper, Grade, `Board Width`, Dia, Wind, Plants,
+           `Parent Width`) %>%
   summarize(`Roll Tons` = sum(`Tons`)) %>%
   ungroup()
 
 cons_plt <- cons_plt %>%
-  mutate(`Trim Width` = `Parent Roll Width` - `Board Width`,	
-           `Trim Tons` = (`Roll Tons` * `Parent Roll Width` / `Board Width`) - 
+  mutate(`Trim Width` = `Parent Width` - `Board Width`,	
+           `Trim Tons` = (`Roll Tons` * `Parent Width` / `Board Width`) - 
            `Roll Tons` ) %>%
-             arrange(Year, Caliper, Grade, desc(`Board Width`))
+             arrange(Caliper, Grade, desc(`Board Width`))
 
 copy.table(cons_plt)
 ```
@@ -467,10 +472,82 @@ cons_bom <- left_join(cons_final, bom_dist,
 
 cons_bom[is.na(cons_bom)] <- ""
 
+# Add the trim tons
+cons_bom <- cons_bom %>%
+  mutate(`Trim Tons` = 
+           round(Tons * (`Parent Width` - `Board Width`)/`Board Width`, 2))
+
+cons_bom <- cons_bom %>%
+  select(`Board Caliper`:`Parent Width`, `Trim Tons`, everything())
+
+cons_bom <- cons_bom %>%
+  arrange(`Board Caliper`, Grade, `Parent Width`, `Board Width`)
+
 copy.table(cons_bom)
 
+# ---- Write to the spreadsheet with formatting
+wb <- loadWorkbook(file.path(proj_root, paste0(projscenario, mYear, 
+                               "ParentSummary.xlsx")))
+if (!("Cons by Die" %in% names(wb))) {
+  addWorksheet(wb, "Cons by Die", gridLines = FALSE)
+} else {
+  removeWorksheet(wb, "Cons by Die")
+  addWorksheet(wb, "Cons by Die", gridLines = FALSE)
+}
+
+writeData(wb, "Cons by Die", cons_bom,
+          startCol = 1, startRow = 3,
+          withFilter = TRUE)
+
+nbrStyle <- createStyle(numFmt = "#,##0.0", halign = "right")
+wh_text_style <- createStyle(fontColour = "white")
+top_line_red_style <- createStyle(borderStyle = "medium",
+                              borderColour = "red", border = "top")
+top_line_blk_style <- createStyle(borderStyle = "thin",
+                              borderColour = "black", border = "top")
+green_font_style <- createStyle(fontColour = "green3",
+                                textDecoration = "bold")
+
+conditionalFormatting(wb, "Cons by Die", cols = 1:22, 
+                      rows = 4:(nrow(cons_bom) + 2),
+                      rule = "$C3 != $C4", style = top_line_blk_style)
+
+conditionalFormatting(wb, "Cons by Die", cols = 1:22, 
+                      rows = 4:(nrow(cons_bom) + 2),
+                      rule = "$S3 != $S4", style = top_line_red_style)
+
+conditionalFormatting(wb, "Cons by Die", cols = 3, 
+                      rows = 4:(nrow(cons_bom) + 2),
+                      rule = "$C4 == $S4", style = green_font_style)
+
+setColWidths(wb, "Cons by Die", cols = 14:18, widths = "auto",
+             hidden = rep(TRUE, 5))
+
+setColWidths(wb, "Cons by Die", cols = c(10:12, 21, 22),
+             widths = "auto")
+
+addStyle(wb, "Cons by Die", rows = 4:(nrow(cons_bom)+3),
+         cols = 13, style = nbrStyle, gridExpand = TRUE, stack = TRUE)
+
+addStyle(wb, "Cons by Die", rows = 3, cols = 1:23,
+         style = createStyle(textDecoration = "bold"), stack = TRUE)
+
+addStyle(wb, "Cons by Die", rows = 3, cols = c(1:9, 12:22),
+         gridExpand = TRUE, style = createStyle(wrapText = TRUE), 
+         stack = TRUE)
+
+writeData(wb, "Cons by Die", paste0("Date Range: ", start_date, 
+                                    " to ", end_date),
+          startRow = 1, startCol = 1, colNames = FALSE)
+
+
+saveWorkbook(wb, file = file.path(proj_root, paste0(projscenario, mYear, 
+                               "ParentSummary.xlsx")), overwrite = TRUE)
+
+
+# --- Not sure what I was doing here, counting FG Materials?
 cons_bom_sum <- cons_bom %>%
-  group_by(Year, Plant, `Board Caliper`, Grade, Wind, Dia, 
+  group_by(Plant, `Board Caliper`, Grade, Wind, Dia, 
            `Board Width`, Die, Tons) %>%
   summarize(Nbr.Components = n_distinct(Component, na.rm = TRUE),
             Nbr.Materials = n_distinct(Material, na.rm = TRUE))
@@ -486,9 +563,14 @@ bom_pilot <- left_join(select(rpilot, Caliper, Grade, Wind, Roll.Width),
 bom_pilot <- semi_join(bom_pilot, cons,
                        by = c("Die"))
 
+copy.table(bom_pilot)
 ```
+
 ```{r Pilot Dies Final}
 # These are the final set of dies that will be part of the pilot
+
+# Read the spreadsheet column that has the dies.  Could be multiple
+# dies per cell, so we need to split and unlist them
 
 dies_final <- read.xlsx(file.path(proj_root,
          "CPD-pilot-rolls.xlsx"),

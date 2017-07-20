@@ -61,35 +61,20 @@ opt_detail %>%
             SKUs = n_distinct(Fac, Grade, CalDW, Prod.Width))
 
 
-# Pull in the Prod.Type that we create in the rd_comb dataframe in the
-# the YoY Data Comp.R script. This script creates some other tables that 
-# we need: rd_common & rd_cpd_web
-if (!exists("rd_comb")) source(file.path(proj_root, "R", "YoY Data Comp.R"))
+# Pull in the Prod.Type from the rawDataAll data frame
+if (!exists("rawDataAll")) source(file.path(proj_root, "R", "3.Read Data.R"))
 
 # Make sure we have the same number of products in rd_comb for mYear as we 
 # do in opt_detail
 
-if (nrow(rd_comb[rd_comb$Year == mYear,]) != nrow(opt_detail)) {
-  warning("Number of rows do not match: rd_comb vs. opt_detail")
-}
 opt_detail <- 
   left_join(opt_detail,
-            select(filter(rd_comb, Year == "2016"),
-                   Mill, Grade, CalDW, Width, Prod.Type, Nbr.Dies,
-                   Bev.VMI, CPD.VMI, Eur, CPD.Web, CPD.Sheet, Common.SKU,
-                   Prod.Type),
+            distinct(rawDataAll,
+                   Mill, Grade, CalDW, Width, Prod.Type),
             by = c("Fac" = "Mill",
                    "Grade" = "Grade",
                    "CalDW" = "CalDW",
                    "Prod.Width" = "Width"))
-
-opt_detail <- opt_detail %>%
-  rename(Prod.Bev.VMI = Bev.VMI,
-         Prod.CPD.VMI = CPD.VMI,
-         Prod.Eur = Eur,
-         Prod.CPD.Web = CPD.Web,
-         Prod.CPD.Sheet = CPD.Sheet,
-         Prod.Common.SKU = Common.SKU)
 
 opt_sum <- opt_detail %>%
   summarize(nbr.prods = n(),
@@ -108,54 +93,6 @@ ggplot(mutate(opt_detail, GCDW = paste(Grade, CalDW))
                                scientific = F), "Tons and ",opt_sum$nbr.prods,
                 "Products")) +
   scale_y_continuous(name = "Tons", labels = comma)
-
-
-ggplot(mutate(opt_detail, GCDW = paste(Grade, CalDW)),
-       aes(x = Prod.Width, y = Prod.DMD.Tons)) +
-  geom_bar(stat = "identity", width = .25, position = "stack", 
-           aes(fill = Prod.Type)) +
-  ggtitle("2016 SUS SKU Volume by Width") +
-  scale_y_continuous(name = "Tons", labels = comma) +
-  scale_x_continuous(name = "Product Width")
-
-rd_comb %>% filter(Year == "2016") %>%
-  group_by(Prod.Type) %>%
-  summarize(Tons = sum(Tons),
-            SKUs = n(),
-            Dies = sum(Nbr.Dies, na.rm = T))
-
-rd_comb %>% filter(Year == "2016" & Common.SKU) %>%
-  group_by(Prod.Type, Common.SKU) %>%
-  summarize(Tons = sum(Tons),
-            SKUs = n())
-
-# Create a pareto by SKU
-pareto_df <- opt_detail %>%
-  select(Fac, Grade, CalDW, Prod.Width, Prod.DMD.Tons, Prod.Type) %>%
-  arrange(desc(Prod.DMD.Tons)) %>%
-  mutate(SKU.Nbr = row_number()) %>%
-  mutate(Tons = cumsum(Prod.DMD.Tons)) %>%
-  mutate(x = lag(SKU.Nbr, default = 0), y = lag(Tons, default = 0), 
-         xend = SKU.Nbr, yend = Tons,
-         Cum.Pct = Tons/sum(Prod.DMD.Tons))
-
-ggplot(data = pareto_df, aes(x = SKU.Nbr, y = Tons)) +
-  geom_segment(aes(x = x, xend = xend, y = y, yend = yend,
-                   #color = Prod.Type), size = 1.5, alpha = 0.7) +
-                   color = Prod.Type), size = 1.5) +
-  scale_y_continuous(labels = comma) +
-  scale_x_continuous(name = "SKU Ranking") +
-  geom_segment(aes(x = 0, xend = 285, y = 892711, yend = 892711),
-               color = "black", size = 1) +
-  geom_segment(aes(x = 285, xend = 285, y = 0, yend = 892711),
-               color = "black", size = 1) +
-  geom_text(label = "80% = 893K Tons", aes(x = 0, y = 892711),
-            vjust = -1, hjust = "inward") +
-  geom_text(label = "285", aes(x = 285, y = 0),vjust = "inward", 
-            hjust = -.5) +
-  ggtitle("SKU Volume Pareto")
-
-rm(pareto_df)
 
 # Create a data frame for plotting in long format 
 # the Bar.Width variable controlls the width of the bar in the plot
@@ -251,15 +188,6 @@ opt_detail <- opt_detail %>%
   mutate(Parent.Type = first(Prod.Type)) %>%
   ungroup()
 
-# Tally if a type of product is covered by a parent
-opt_detail <- opt_detail %>%
- group_by(Fac, Grade, CalDW, Parent.Width) %>%
- mutate(Parent.Bev.VMI = as.logical(max(Prod.Bev.VMI)),
-        Parent.CPD.VMI = as.logical(max(Prod.CPD.VMI)),
-        Parent.Common.SKU = as.logical(max(Prod.Common.SKU)),
-        Parent.CPD.Web = as.logical(max(Prod.CPD.Web))) %>%
-  ungroup()
-
 opt_detail <- opt_detail %>%
   mutate(Sim.Parent.Avg.OH.DOH = 365*Sim.Parent.Avg.OH/Parent.DMD) 
   
@@ -286,25 +214,12 @@ sim_base %>%
 # Summarize the parent rolls
 opt_parents <- opt_detail %>% 
   group_by(Fac, Grade, CalDW, Caliper, Dia, Wind, Parent.Width, Parent.DMD,
-           Parent.Nbr.Subs, Parent.DMD.Count, Parent.Bev.VMI,
-           Parent.Common.SKU, Parent.CPD.Web, Parent.CPD.VMI, 
+           Parent.Nbr.Subs, Parent.DMD.Count, 
            Parent.dclass,
            Sim.Parent.Avg.OH, Sim.Parent.Qty.Fill.Rate, 
            Sim.Parent.Avg.OH.DOH,
            Parent.Distrib, Parent.Type, Parent.OTL, Parent.DBR) %>%
-  summarize(Parent.Trim.Loss = sum(Prod.Trim.Tons),
-            Parent.Bev.vMI.Count = sum(Prod.Bev.VMI),
-            Parent.Bev.VMI.Prod.Count = sum(Prod.Bev.VMI),
-            Parent.VMI.Prod.Tons = sum(ifelse(Prod.Bev.VMI, Prod.DMD.Tons, 0)),
-            Parent.Common.SKU.Prod.Count = sum(Prod.Common.SKU),
-            Parent.Common.SKU.Prod.Tons = sum(ifelse(Prod.Common.SKU, 
-                                                     Prod.DMD.Tons, 0)),
-            Parent.CPD.VMI.Prod.Count = sum(Prod.CPD.VMI),
-            Parent.cPD.VMI.Prod.Tons = 
-              sum(ifelse(Prod.CPD.VMI, Prod.DMD.Tons, 0)),
-            Parent.CPD.Web.Prod.Count = sum(Prod.CPD.Web),
-            Parent.CPD.Web.Prod.Tons = 
-              sum(ifelse(Prod.CPD.Web, Prod.DMD.Tons, 0))) %>%
+  summarize(Parent.Trim.Loss = sum(Prod.Trim.Tons)) %>%
   ungroup()
 
 opt_parents <- opt_parents %>%
@@ -371,98 +286,11 @@ ggplot(data = opt_parents, aes(x = Sim.Parent.Qty.Fill.Rate,
 # Which parents are in or out (MTS vs. MTO)
 
 # Create the MTO vs MTS Inventory Policy
-# First make sure we have the parents that cover the SKUs common 
-# between 2015 and 2016
-opt_parents %>% 
-  group_by(Parent.Common.SKU) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-opt_parents %>% 
-  group_by(Parent.Bev.VMI) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-opt_parents %>% 
-  group_by(Parent.CPD.Web) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = round(365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD), 1),
-            Trim.Tons = round(sum(Parent.Trim.Loss), 0),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-
-opt_parents %>% 
-  group_by(Parent.dclass.group) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-
-opt_parents %>% 
-  filter(Sim.Parent.Qty.Fill.Rate > .96) %>%
-  #group_by(Parent.dclass) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-
-opt_parents %>% 
-  filter(Sim.Parent.Avg.OH.DOH < 30) %>%
-  #group_by(Parent.dclass) %>%
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-
-# Incrementally add the filters
-opt_parents %>% 
-  #filter(Parent.VMI) %>%                                                 #1
-  #filter(!Parent.VMI & Parent.CPD.Web & Sim.Parent.Avg.OH.DOH < 45) %>%  #2
-  #filter(!Parent.VMI & !(Parent.CPD.Web & Sim.Parent.Avg.OH.DOH < 45) &  #3
-  #         (Sim.Parent.Avg.OH.DOH < 30)) %>%                             #3
-  #filter(!Parent.VMI & !(Parent.CPD.Web & Sim.Parent.Avg.OH.DOH < 45) &  #4
-  #         !(Sim.Parent.Avg.OH.DOH < 30) &                               #4
-  #         (str_sub(Parent.dclass, 1, 5) == "Non-I")) %>%                #4
-  summarize(Sub.Rolls = sum(Parent.Nbr.Subs),
-            Nbr.Rolls = n(),
-            Annual.Tons = sum(Parent.DMD),
-            Avg.OH = sum(Sim.Parent.Avg.OH),
-            Total.DOH = 365*sum(Sim.Parent.Avg.OH)/sum(Parent.DMD),
-            Trim.Tons = sum(Parent.Trim.Loss),
-            Fill.Rate = sum(Parent.DMD * Sim.Parent.Qty.Fill.Rate)/
-              sum(Parent.DMD))
-
 # Identify Slow Demand ( < 5)
 opt_parents <- opt_parents %>%
   mutate(Parent.DMD.Freq = ifelse(Parent.DMD.Count <= 5, "Slow", 
                                   ifelse(Parent.DMD.Count <= 30, 
                                          "Medium", "Fast")))
-
 
 opt_parents %>% 
   group_by(Parent.DMD.Freq) %>%
@@ -477,17 +305,10 @@ opt_parents %>%
             Dmd.Count = sum(Parent.DMD.Count))
 
 # Create the Parent.Policy field
-# the original is first
-#opt_parents <- opt_parents %>%
-#  mutate(Parent.Policy = 
-#           ifelse(Parent.VMI | (Parent.CPD.Web & Sim.Parent.Avg.OH.DOH < 55) | 
-#                    Sim.Parent.Avg.OH.DOH < 30 |                              
-#                    str_sub(Parent.dclass, 1, 5) == "Non-I", 
-#                  "MTS", "MTO"))
 opt_parents <- opt_parents %>%
   mutate(Parent.Policy = 
-           ifelse(Parent.Bev.VMI | Parent.CPD.VMI | 
-                    (Parent.CPD.Web & Sim.Parent.Avg.OH.DOH < 45) | 
+           ifelse((Parent.Type %in% c("Bev.VMI", "CPD.VMI",  
+                    "CPD.Web") & Sim.Parent.Avg.OH.DOH < 45) | 
                     Sim.Parent.Avg.OH.DOH < 30, 
                   "MTS", "MTO"))
 
@@ -546,7 +367,6 @@ opt_detail %>% group_by(Parent.Policy, Prod.Type) %>%
                                            Sim.Parent.Avg.OH, 0))/
                               sum(ifelse(Parent.Prod.IDX == 1, 
                                          Parent.DMD, 0)), 1),
-            Nbr.Dies = sum(Nbr.Dies, na.rm = T),
             Trim = round(sum(Prod.Trim.Tons), 0)) %>%
   arrange(desc(Parent.Policy), desc(Tons))
 
@@ -561,7 +381,6 @@ copy.table(opt_detail %>% group_by(Parent.Policy, Prod.Type) %>%
                                                       Sim.Parent.Avg.OH, 0))/
                                          sum(ifelse(Parent.Prod.IDX == 1, 
                                                     Parent.DMD, 0)), 1),
-                       Nbr.Dies = sum(Nbr.Dies, na.rm = T),
                        Trim = round(sum(Prod.Trim.Tons), 0)) %>%
              arrange(desc(Parent.Policy), desc(Tons))
 )
@@ -625,12 +444,6 @@ opt_parents %>%
   summarize(Tons = sum(Parent.DMD),
             Parents = n(),
             Avg.OH = sum(Sim.Parent.Avg.OH))
-  
-# How many VMI Rolls in the solution
-opt_parents %>%
-  group_by(Parent.Policy, Parent.Bev.VMI) %>%
-  summarize(Count = n(),
-            Parent.Tons = sum(Parent.DMD))
 
 save(opt_detail, file = file.path(proj_root, "Scenarios",
                                   mYear, projscenario, "opt_detail.RData"))

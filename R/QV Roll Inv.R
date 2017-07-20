@@ -19,7 +19,7 @@ library(stringr)
 library(data.table)
 
 # This projects root directory
-if (!exists(proj_root)) proj_root <- 
+if (!exists("proj_root")) proj_root <- 
     file.path("C:", "Users", "SchroedR", "Documents",
                        "Projects", "SUS Roll Consolidation") 
 
@@ -265,7 +265,7 @@ sr_inv_fy <- sr_inv_me %>%
 copy.table(sr_inv_fy)
 
 #Beverage Items to eliminate
-elim <- 
+bev.elim <- 
   tribble( 
     ~Caliper, ~Grade, ~Width.e, ~Width.p,
     #-----------------------
@@ -274,8 +274,8 @@ elim <-
     "18", "AKPG", 44.125, 45.25,
     "21", "AKPG", 45.5, 46,
     "24", "AKPG", 36.75, 37.75,
-    "24", "AKPG", 41.875, 42.25,
-    "24", "AKPG", 42.125, 42.25,
+    #"24", "AKPG", 41.875, 42.25,
+    #"24", "AKPG", 42.125, 42.25,
     "24", "AKPG", 42.875, 43.125,
     "24", "AKPG", 44.875, 46.625,
     "24", "AKPG", 47.5, 47.625,
@@ -285,15 +285,15 @@ elim <-
     "27", "AKPG", 46.625, 47.125,
     "28", "PKXX", 37.875, 38.625)
 
-sr.inv <- sr_inv %>%
-  group_by(Date, Grade, Caliper, Width) %>%
+sr.bev.inv.elim <- sr_inv %>%
+  group_by(Date, Caliper, Grade, Width) %>%
   summarize(Tons = sum(Inv.Tons))
 
-sr.inv.elim <- 
-  semi_join(sr.inv, elim,
+sr.bev.inv.elim <- 
+  semi_join(sr.inv, bev.elim,
             by = c("Grade", "Caliper", "Width" = "Width.e"))
 
 # Average for all Items
-sr.inv.elim %>% group_by(Date) %>%
-  summarize(Tons = sum(Tons)) %>%
-  summarize(Tons = mean(Tons))
+sr.bev.inv.elim %>% group_by(Date) %>%
+  summarize(Tons = sum(Tons)) %>%  # Sum of all items for each month
+  summarize(Tons = mean(Tons)) # Average of the months
